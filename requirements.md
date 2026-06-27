@@ -1,8 +1,8 @@
-# 保護者面談調整ツール 要件定義書（プロトタイプ）
+# 保護者面談調整ツール 要件定義書（プロトタイプ・Windows版）
 
 ## 0. ドキュメント目的
 
-本書は、中学校教師を想定ユーザーとした保護者面談調整ツールのプロトタイプ実装を、Claude Code に依頼するための要件定義書である。限定的なユーザーによる試用を目的とし、将来的なバックエンド化・マルチテナント化を見据えた構成とする。
+本書は、中学校教師を想定ユーザーとした保護者面談調整ツールのプロトタイプ実装を、Claude Code に依頼するための要件定義書である。**Windows ネイティブ環境を前提**とし、限定的なユーザー（=実装者本人）による試用を目的とする。
 
 ---
 
@@ -10,8 +10,8 @@
 
 ### 1.1 スコープ
 
-- 限定的な教師ユーザーによる試用を目的としたプロトタイプ
-- 教師PC上でローカル起動するWebアプリとして実装
+- 実装者本人による試用を目的としたプロトタイプ
+- Windows PC 上でローカル起動するWebアプリとして実装
 - 1教師1インスタンス（シングルテナント）
 
 ### 1.2 将来拡張の方向性（プロトタイプでは未実装）
@@ -22,14 +22,21 @@
 | テナント | 教師単位 | 学校単位 |
 | プロジェクト実体 | ローカルディレクトリ | DBレコード |
 | 受領検知 | 定期ポーリング | Pub/Sub等のプッシュ |
-
-プロトタイプ実装時も、データアクセス層を抽象化し将来のDB移行を容易にすること。
+| 対応OS | Windows のみ | Windows / macOS / Linux |
 
 ### 1.3 個人情報の取り扱い
 
 - 生徒氏名・連絡先等の個人情報はマスタとして保有しない
 - 生徒の識別は**出席番号**で行う
 - 生徒へのForm URL配信は本ツールでは行わず、教師が手動でコピーして配布する
+
+### 1.4 動作環境前提
+
+- Windows 10 / 11
+- PowerShell 5.1 以上（Windows 10/11 標準）
+- Python 3.11+
+- Node.js 18+ (LTS推奨)
+- Git for Windows
 
 ---
 
@@ -42,8 +49,9 @@
 | スケジューリング | OR-Tools (Python) |
 | Google連携 | Google Forms API / Google Drive API（OAuth2） |
 | データ保管 | ローカルファイルシステム（JSON） |
-| PDF生成 | ReportLab または WeasyPrint |
-| 起動方式 | `localhost:<port>` でブラウザアクセス |
+| PDF生成 | ReportLab（日本語フォント埋め込み対応） |
+| 起動方式 | PowerShell スクリプトから `localhost:<port>` を起動 |
+| プロセス管理 | PowerShell ジョブまたは別ウィンドウ起動 |
 
 ### 2.1 認証
 
@@ -56,8 +64,10 @@
 
 ### 2.2 起動方式
 
-- バックエンドとフロントエンドを単一プロセスから起動（FastAPIが静的ビルド済みフロントを配信）
-- 起動コマンド一発で `http://localhost:<port>` にアクセス可能とする
+- PowerShell スクリプト `start-dev.ps1` で開発モード起動
+- バックエンドとフロントエンドを別ウィンドウまたは並列ジョブで起動
+- ビルド済みフロントを FastAPI が配信する本番モード起動 `start.ps1`
+- 起動後、ブラウザで `http://localhost:8000` にアクセス
 
 ---
 
@@ -66,26 +76,27 @@
 ### 3.1 ディレクトリ構造
 
 ```
-<APP_DATA_ROOT>/
-├── config/
+%APPDATA%\meeting-scheduler\
+├── config\
+│   ├── oauth_client.json         # GCPでダウンロードしたクライアント認証情報
 │   ├── oauth_token.json          # Google OAuth2 トークン
 │   └── global_rules.json         # ホーム画面で設定する既定ルール
-└── projects/
-    └── <project_id>/
-        ├── project.json          # プロジェクトメタ情報
-        ├── rules.json            # 当プロジェクトでカスタマイズされたルール
-        ├── form.json             # 作成したGoogle Formのメタ情報
-        ├── responses/
-        │   └── <出席番号>/
+└── projects\
+    └── <project_id>\
+        ├── project.json
+        ├── rules.json
+        ├── form.json
+        ├── responses\
+        │   └── <出席番号>\
         │       ├── 20260624_153012.json
-        │       └── 20260625_091045.json   # 最新を採用
-        ├── drafts/
-        │   └── draft_<timestamp>.json     # 面談日程ドラフト
-        └── output/
+        │       └── 20260625_091045.json
+        ├── drafts\
+        │   └── draft_<timestamp>.json
+        └── output\
             └── schedule_<timestamp>.pdf
 ```
 
-`<APP_DATA_ROOT>` は OS の標準アプリデータディレクトリ配下（例：macOSなら `~/Library/Application Support/<アプリ名>/`）。
+`%APPDATA%` は通常 `C:\Users\<ユーザー名>\AppData\Roaming\` を指す。Python の `os.getenv("APPDATA")` で取得可能。
 
 ### 3.2 主要データスキーマ
 
@@ -107,7 +118,7 @@
 }
 ```
 
-#### responses/<出席番号>/<timestamp>.json
+#### responses\<出席番号>\<timestamp>.json
 
 ```json
 {
@@ -123,7 +134,7 @@
 }
 ```
 
-#### rules.json（プロジェクト個別ルール）
+#### rules.json
 
 ```json
 {
@@ -136,33 +147,15 @@
     ]
   },
   "student_constraints": [
-    {
-      "type": "pairing",
-      "student_numbers": [5, 12],
-      "weight": 8
-    },
-    {
-      "type": "avoid_time",
-      "student_number": 7,
-      "avoid_after": "18:00",
-      "weight": 5
-    },
-    {
-      "type": "prefer_time",
-      "student_number": 3,
-      "prefer_before": "17:00",
-      "weight": 5
-    },
-    {
-      "type": "duration_multiplier",
-      "student_number": 9,
-      "multiplier": 2
-    }
+    {"type": "pairing", "student_numbers": [5, 12], "weight": 8},
+    {"type": "avoid_time", "student_number": 7, "avoid_after": "18:00", "weight": 5},
+    {"type": "prefer_time", "student_number": 3, "prefer_before": "17:00", "weight": 5},
+    {"type": "duration_multiplier", "student_number": 9, "multiplier": 2}
   ]
 }
 ```
 
-#### drafts/draft_<timestamp>.json
+#### drafts\draft_<timestamp>.json
 
 ```json
 {
@@ -175,6 +168,20 @@
   "unassigned_students": [22],
   "violated_constraints": []
 }
+```
+
+### 3.3 パス操作の注意点
+
+実装コード内では、OS差異を吸収するため Python の `pathlib.Path` を使用し、文字列リテラルでパス区切りを書かない。
+
+```python
+# 推奨
+from pathlib import Path
+import os
+app_data = Path(os.getenv("APPDATA")) / "meeting-scheduler"
+
+# 非推奨
+app_data = os.getenv("APPDATA") + "\\meeting-scheduler"
 ```
 
 ---
@@ -206,7 +213,7 @@
 
 ### 4.2 ホーム画面
 
-- 「面談調整開始」ボタン → 新規プロジェクト作成（プロジェクトIDと表示名を入力）
+- 「面談調整開始」ボタン → 新規プロジェクト作成
 - 過去プロジェクト一覧（作成日時降順、ステータス表示）→ クリックで再オープン
 - 「ルール設定」ボタン → グローバルルール設定画面
 
@@ -221,14 +228,14 @@
   - 受領済み出席番号一覧
   - 未受領出席番号一覧
   - 「最新回答を取得」ボタン（手動ポーリング）
-- 「ルールカスタマイズ」ボタン → プロジェクト個別ルール編集
-- 「面談日程案作成」ボタン → スケジューリング実行
+- 「ルールカスタマイズ」ボタン
+- 「面談日程案作成」ボタン
 
 ### 4.4 Form回答受領
 
 - ポーリング方式：プロジェクト画面が開かれている間、N秒間隔（既定60秒）でForms APIを呼び出し
 - 手動取得：「最新回答を取得」ボタンで即時実行
-- 新規回答検知時、`responses/<出席番号>/<受信時刻>.json` に保存
+- 新規回答検知時、`responses\<出席番号>\<受信時刻>.json` に保存
 - 同一出席番号から複数回答があった場合、すべて別ファイルとして保存し、後続処理ではファイル名タイムスタンプ最新のものを使用
 
 ### 4.5 ルール設定
@@ -236,19 +243,19 @@
 #### 4.5.1 グローバルルール設定画面（ホーム画面から）
 
 - プロジェクト作成時に既定値として複製される
-- 編集項目は 3.2 の rules.json 構造に準ずる
+- 編集項目は §3.2 の rules.json 構造に準ずる
 
 #### 4.5.2 プロジェクトルール設定画面
 
 - グローバルルールを複製した状態から開始
-- 制約種別は以下のプリセットから追加・編集・削除
+- 制約種別は以下のプリセット
   - 連続コマ数上限 / 強制空きコマ数（グローバル）
   - 1日あたりコマ数上限（グローバル）
   - 教師不可時間帯（グローバル）
-  - ペアリング（出席番号同士を連続枠に）
-  - 時間帯回避（特定出席番号が特定時刻以降/以前を避ける）
-  - 時間帯優先（特定出席番号が特定時刻以前/以降を優先）
-  - 所要時間倍率（特定出席番号が複数コマを使用）
+  - ペアリング
+  - 時間帯回避
+  - 時間帯優先
+  - 所要時間倍率
 - ソフト制約は重み（0〜10）を指定
 
 ### 4.6 面談日程案作成（スケジューリング）
@@ -281,7 +288,6 @@
 
 - 違反している制約の一覧を表示
 - 未配置となった生徒の出席番号一覧を表示
-- 教師が候補日時を追加するか、ルールを緩めるかを判断できるよう情報提示
 
 ### 4.7 日程案表示画面
 
@@ -304,7 +310,7 @@
 
 - 保存実行時に `draft_<timestamp>.json` として保存しロック
 - 再編集時はロックを解除して既存ドラフトを上書き候補とする
-- 過去ドラフトはファイルとして残置（参照は将来課題）
+- 過去ドラフトはファイルとして残置
 
 ---
 
@@ -313,8 +319,8 @@
 ### 5.1 Form作成
 
 - Google Forms API を直接呼び出して作成
-- チェックボックスマトリクスの作成可否を実装前に確認すること
-- マトリクスが API でサポートされていない場合、**代替実装**として「日付ごとに複数選択チェックボックス質問を並べる」形式に切り替える
+- チェックボックスマトリクスの作成可否を実装前に確認すること（Phase 2.0で調査）
+- マトリクスが API でサポートされていない場合、日付ごとに複数選択チェックボックス質問を並べる形式に切り替える
 - 質問項目：
   - 出席番号（必須・短文回答、整数バリデーション）
   - 候補日時枠（マトリクスまたは日付ごとの複数選択）
@@ -331,8 +337,6 @@
 
 ## 6. API設計（バックエンド）
 
-主要エンドポイントの目安。
-
 | メソッド | パス | 用途 |
 |---|---|---|
 | GET | /api/projects | プロジェクト一覧 |
@@ -342,68 +346,113 @@
 | POST | /api/projects/{id}/form | Google Form作成 |
 | POST | /api/projects/{id}/responses/sync | 回答ポーリング実行 |
 | GET | /api/projects/{id}/responses | 受領済み回答一覧 |
+| GET | /api/projects/{id}/responses/status | 受領済み/未受領出席番号 |
 | GET | /api/projects/{id}/rules | プロジェクトルール取得 |
 | PUT | /api/projects/{id}/rules | プロジェクトルール更新 |
 | POST | /api/projects/{id}/schedule | スケジューリング実行 |
 | POST | /api/projects/{id}/drafts | ドラフト保存（ロック） |
 | POST | /api/projects/{id}/drafts/unlock | ロック解除 |
+| GET | /api/projects/{id}/drafts/latest | 最新ドラフト取得 |
 | GET | /api/projects/{id}/pdf | PDF生成・ダウンロード |
 | GET | /api/global-rules | グローバルルール取得 |
 | PUT | /api/global-rules | グローバルルール更新 |
 | GET | /api/auth/google | OAuth認証開始 |
 | GET | /api/auth/google/callback | OAuth コールバック |
+| GET | /api/auth/status | 認証状態確認 |
+| GET | /api/health | ヘルスチェック |
 
-データアクセスは Repository パターン等で抽象化し、ファイルベース実装を後でDB実装に差し替え可能にすること。
+データアクセスは Repository パターンで抽象化し、ファイルベース実装を後でDB実装に差し替え可能にすること。
 
 ---
 
 ## 7. ディレクトリ構成（実装）
 
 ```
-project-root/
-├── backend/
-│   ├── app/
-│   │   ├── main.py                # FastAPIエントリポイント
-│   │   ├── api/                   # ルータ
-│   │   ├── services/
+project-root\
+├── backend\
+│   ├── app\
+│   │   ├── main.py
+│   │   ├── api\
+│   │   ├── services\
 │   │   │   ├── google_forms.py
-│   │   │   ├── scheduler.py       # OR-Tools
+│   │   │   ├── scheduler.py
 │   │   │   ├── pdf_generator.py
 │   │   │   └── polling.py
-│   │   ├── repositories/          # データアクセス抽象化
+│   │   ├── repositories\
 │   │   │   └── file_repository.py
-│   │   ├── models/                # Pydanticモデル
+│   │   ├── models\
 │   │   └── config.py
-│   ├── tests/
+│   ├── tests\
 │   └── pyproject.toml
-├── frontend/
-│   ├── src/
-│   │   ├── pages/
-│   │   ├── components/
-│   │   └── api/                   # バックエンドAPIクライアント
+├── frontend\
+│   ├── src\
+│   │   ├── pages\
+│   │   ├── components\
+│   │   └── api\
 │   ├── package.json
 │   └── vite.config.ts
+├── scripts\
+│   ├── start-dev.ps1            # 開発モード起動
+│   ├── start.ps1                # 本番モード起動（ビルド済みフロント配信）
+│   └── setup.ps1                # 初回セットアップ
 └── README.md
 ```
 
 ---
 
-## 8. 想定外・将来課題（プロトタイプでは扱わない）
+## 8. Windows 固有の実装注意事項
 
-- 生徒へのForm URL自動配信
-- 生徒氏名表示
-- 兄弟関係マスタ（プロトタイプでは出席番号ペアを教師が手動指定）
-- マルチテナント
-- DB化
-- 過去ドラフトの履歴比較UI
-- 認証スコープ最小化の精査（プロトタイプでは drive.file で十分かを実装時確認）
+### 8.1 パス操作
+
+- バックエンド：すべて `pathlib.Path` 経由でパスを構築
+- フロントエンド：URLは常に `/` 区切り
+- 設定ファイル内のパス：JSON文字列として保存する際、`\\` のエスケープに注意
+
+### 8.2 改行コード
+
+- リポジトリ内の改行コードは LF に統一
+- `.gitattributes` で以下を指定
+
+```
+* text=auto eol=lf
+*.ps1 text eol=crlf
+*.bat text eol=crlf
+```
+
+PowerShell スクリプトとバッチファイルだけは CRLF とする。
+
+### 8.3 文字エンコーディング
+
+- ソースコード：UTF-8（BOM なし）
+- PowerShell スクリプト：UTF-8 with BOM（PowerShell 5.1 互換のため）または `$OutputEncoding` 設定で対応
+
+### 8.4 ポート競合
+
+- 既定ポート 8000 が使用中の場合に備え、環境変数 `MEETING_SCHEDULER_PORT` で変更可能とする
+
+### 8.5 OAuth リダイレクトURI
+
+- `http://localhost:8000/api/auth/google/callback` 固定
+- GCP OAuth クライアント設定で同URIを登録
 
 ---
 
-## 9. 未確定・実装時確認事項
+## 9. 想定外・将来課題（プロトタイプでは扱わない）
 
-1. Google Forms API のチェックボックスグリッド対応状況（最新仕様確認）
-2. Forms API のレスポンス JSON 構造の最新仕様（マトリクス回答のパース方法）
+- 生徒へのForm URL自動配信
+- 生徒氏名表示
+- 兄弟関係マスタ
+- マルチテナント
+- DB化
+- 過去ドラフトの履歴比較UI
+- 認証スコープ最小化の精査
+- Windows 以外のOS対応
+
+---
+
+## 10. 未確定・実装時確認事項
+
+1. Google Forms API のチェックボックスグリッド対応状況（Phase 2.0で調査）
+2. Forms API のレスポンス JSON 構造（マトリクス回答のパース方法）
 3. ポーリングAPIのクォータ制限（既定60秒間隔で問題ないか）
-4. ローカルファイルパスのOS差異（Windows/macOS/Linux）
-5. PDF日本語フォントの埋め込み手段
+4. PDF日本語フォントの埋め込み手段（IPAex 等のオープンフォント利用）
