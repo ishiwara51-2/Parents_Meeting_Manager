@@ -314,3 +314,11 @@ logger = logging.getLogger(__name__)
 
 タグ `phase2.3-done` は本 cleanup コミット後の HEAD に force 移動済み
 （`git tag -f phase2.3-done HEAD`）。
+
+## 追記2：テストファイル名の規約合わせ（リネーム）
+
+Check-PhaseDone.ps1:374 が `backend\tests\test_polling_service.py` を期待していたため、
+初期コミット時に作成した `backend\tests\test_polling.py` を `git mv` でリネームした
+（履歴追跡保持）。中身・テスト件数（8 件）は無変更。pytest はファイル名で自動収集する
+ため、`test_polling_service.py` でも引き続き全件 PASS。`phase2.3-done` タグも本
+リネームコミットに force 移動済み。
