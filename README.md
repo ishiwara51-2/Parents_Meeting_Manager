@@ -4,7 +4,7 @@
 
 詳細仕様は [requirements.md](requirements.md) を参照。
 
-本リポジトリは段階的に実装する。現在の到達点は **Phase 1.1（プロジェクト初期化と FastAPI 骨格）** である。
+本リポジトリは段階的に実装する。現在の到達点は **Phase 1.3（Google OAuth2 認証フロー）** である。
 
 ---
 
@@ -32,6 +32,80 @@ pwsh .\scripts\setup.ps1
 1. Python のバージョンチェック（3.11+）
 2. 仮想環境作成 `backend\.venv`
 3. 依存インストール `backend\.venv\Scripts\pip install -e backend`
+
+---
+
+## GCP セットアップ（Phase 1.3 以降必須）
+
+Google Forms / Drive API を利用するために、以下を GCP コンソール上で行う。
+取得した `oauth_client.json` を `%APPDATA%\meeting-scheduler\config\oauth_client.json` に配置する。
+
+### 1. GCP プロジェクト作成
+
+1. [Google Cloud Console](https://console.cloud.google.com/) にログイン
+2. 上部のプロジェクトセレクタから「新しいプロジェクト」を選択
+3. 任意の名前（例：`meeting-scheduler-proto`）でプロジェクトを作成
+
+### 2. Forms API / Drive API 有効化
+
+1. ナビゲーションメニュー → **API とサービス** → **ライブラリ**
+2. 以下の API を検索し、それぞれ「有効にする」をクリック
+   - **Google Forms API**
+   - **Google Drive API**
+
+### 3. OAuth 同意画面の構成
+
+1. ナビゲーションメニュー → **API とサービス** → **OAuth 同意画面**
+2. **User Type**：`External` を選択
+3. アプリ名・サポートメール・デベロッパーメールを入力（個人利用のためダミーで可）
+4. **公開ステータス**：`Testing` のままにする
+5. **テストユーザー**：実装者本人の Google アカウントを追加（追加しないと認可時に拒否される）
+6. **スコープ**：以下の3つを「スコープを追加または削除」から追加
+   - `https://www.googleapis.com/auth/forms.body`
+   - `https://www.googleapis.com/auth/forms.responses.readonly`
+   - `https://www.googleapis.com/auth/drive.file`
+
+### 4. OAuth クライアント ID の発行
+
+1. ナビゲーションメニュー → **API とサービス** → **認証情報**
+2. 「**+ 認証情報を作成**」→ **OAuth クライアント ID** を選択
+3. **アプリケーションの種類**：`ウェブアプリケーション`
+4. **承認済みのリダイレクト URI** に以下を追加（**完全一致**で登録すること）
+   ```
+   http://localhost:8000/api/auth/google/callback
+   ```
+5. 作成後、ダイアログ右上の「JSON をダウンロード」をクリック
+
+### 5. クライアント認証情報の配置
+
+ダウンロードした JSON を `oauth_client.json` というファイル名にリネームし、以下のパスへ配置する。
+
+```
+%APPDATA%\meeting-scheduler\config\oauth_client.json
+```
+
+`%APPDATA%` は通常 `C:\Users\<ユーザー名>\AppData\Roaming` を指す。配置先ディレクトリは
+バックエンドを一度起動すれば自動作成される。
+
+> セキュリティ上、`oauth_client.json` と認可後に作成される `oauth_token.json` は
+> **絶対にリポジトリへコミットしてはならない**。`.gitignore` で除外済み。
+
+### 6. 認証フローの実行
+
+1. バックエンドを起動（`pwsh .\scripts\start-dev.ps1`）
+2. ブラウザで <http://localhost:8000/api/auth/google> にアクセス
+3. Google アカウント選択 → スコープ同意
+4. リダイレクトで `/api/auth/google/callback` に戻り、`oauth_token.json` がディスクに保存される
+5. <http://localhost:8000/api/auth/status> で `{"status": "authorized"}` が返れば成功
+
+### トラブルシューティング
+
+| 症状 | 対処 |
+|---|---|
+| `redirect_uri_mismatch` エラー | GCP コンソールの「承認済みリダイレクト URI」が完全一致しているか確認（末尾スラッシュ／プロトコルに注意） |
+| `access_denied` エラー | OAuth 同意画面の「テストユーザー」に当該 Google アカウントが追加されているか確認 |
+| `oauth_client.json not found` | 配置先パスを再確認。`%APPDATA%` は環境変数 `APPDATA` で解決される |
+| state mismatch (400) | ブラウザのセッション（cookie）が切れた可能性。`/api/auth/google` から再度実行 |
 
 ---
 

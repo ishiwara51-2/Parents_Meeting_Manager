@@ -4,18 +4,42 @@ requirements.md §6 / §7 / §8.4 に従い、以下を担う。
 
 - アプリ起動時にデータディレクトリ（``config/``、``projects/``）を自動作成
 - ヘルスチェック ``GET /api/health`` の提供（``{"status": "ok"}``）
+- OAuth 認証ルータ（Phase 1.3）の登録
+- セッションミドルウェア（CSRF 対策の state 保存先、Phase 1.3）
 
 ルータの追加は後続フェーズで `app/api/` 配下に実装する。
 """
 
 from __future__ import annotations
 
+import os
+import secrets
 from contextlib import asynccontextmanager
 from typing import AsyncIterator
 
 from fastapi import FastAPI
+from starlette.middleware.sessions import SessionMiddleware
 
+from app.api.auth import router as auth_router
 from app.config import get_settings
+
+
+ENV_SESSION_SECRET = "MEETING_SCHEDULER_SESSION_SECRET"
+
+
+def _resolve_session_secret() -> str:
+    """セッション署名鍵を解決する。
+
+    優先順位:
+        1. 環境変数 ``MEETING_SCHEDULER_SESSION_SECRET``
+        2. プロセス起動時に ``secrets.token_urlsafe(32)`` で都度生成
+
+    プロセス再起動でセッションは無効化される（プロトタイプ運用として許容）。
+    """
+    explicit = os.getenv(ENV_SESSION_SECRET)
+    if explicit:
+        return explicit
+    return secrets.token_urlsafe(32)
 
 
 @asynccontextmanager
@@ -40,10 +64,21 @@ def create_app() -> FastAPI:
         lifespan=lifespan,
     )
 
+    # CSRF 対策の state を保存するためのセッションミドルウェア
+    # （requirements.md §2.1, Phase 1.3）
+    application.add_middleware(
+        SessionMiddleware,
+        secret_key=_resolve_session_secret(),
+        # http://localhost 運用のため secure=False（既定）。https_only も無効。
+        same_site="lax",
+    )
+
     @application.get("/api/health", tags=["health"])
     async def health() -> dict[str, str]:
         """ヘルスチェック。常に ``{"status": "ok"}`` を返す。"""
         return {"status": "ok"}
+
+    application.include_router(auth_router)
 
     return application
 
