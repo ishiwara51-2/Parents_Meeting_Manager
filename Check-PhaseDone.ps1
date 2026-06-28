@@ -135,13 +135,24 @@ $existingTag = git tag -l "phase${PhaseId}-done" 2>$null
 if ($existingTag) {
     Test-CheckPass "git_tag_exists" "phase${PhaseId}-done"
 
-    # タグが HEAD を指していること（タグ後に追加コミットがないこと）
+    # タグが HEAD を指していること（タグ後は fix(check):/chore(check):/chore(approval): のみ許容）
     $tagCommit = git rev-list -n 1 "phase${PhaseId}-done" 2>$null
     $headCommit = git rev-parse HEAD 2>$null
     if ($tagCommit -eq $headCommit) {
         Test-CheckPass "tag_at_head" "tag matches HEAD"
     } else {
-        Test-CheckFail "tag_at_head" "tag is not at HEAD (tag=$tagCommit, head=$headCommit)"
+        # タグから HEAD までのコミットが正規プレフィックスのみであれば許容（audit_trail_integrity と整合）
+        $commitsAfterTag = git log --oneline "${tagCommit}..HEAD" 2>$null
+        $illegitimateAfterTag = $commitsAfterTag | Where-Object {
+            $_ -notmatch "chore\(check\):" -and
+            $_ -notmatch "fix\(check\):" -and
+            $_ -notmatch "chore\(approval\):"
+        }
+        if ($illegitimateAfterTag) {
+            Test-CheckFail "tag_at_head" "tag is not at HEAD and illegitimate commits exist after tag: $($illegitimateAfterTag -join '; ')"
+        } else {
+            Test-CheckPass "tag_at_head" "tag is not at HEAD but only audit-prefix commits follow (tag=$tagCommit, head=$headCommit)"
+        }
     }
 } else {
     Test-CheckFail "git_tag_exists" "phase${PhaseId}-done not found"
