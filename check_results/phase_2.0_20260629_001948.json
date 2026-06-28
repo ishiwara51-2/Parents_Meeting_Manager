@@ -1,0 +1,64 @@
+{
+    "detail_logs":  {
+
+                    },
+    "approval_status":  "pending",
+    "vitest_collected":  0,
+    "checked_at":  "2026-06-29T00:19:50+09:00",
+    "overall_result":  "PASS",
+    "errors_count":  0,
+    "git_head_at_check":  "8b04ca9b09612048ab9b0c6074113061f461a82e",
+    "approval_required":  true,
+    "pytest_collected":  27,
+    "checks":  [
+                   {
+                       "detail":  "No changes in audit-protected paths",
+                       "result":  "PASS",
+                       "name":  "audit_trail_integrity"
+                   },
+                   {
+                       "detail":  "Check-PhaseDone.ps1 has no uncommitted changes",
+                       "result":  "PASS",
+                       "name":  "check_script_unmodified"
+                   },
+                   {
+                       "detail":  "docs\\handoff_phase2_0.md",
+                       "result":  "PASS",
+                       "name":  "handoff_file_exists"
+                   },
+                   {
+                       "detail":  "phase2.0-done",
+                       "result":  "PASS",
+                       "name":  "git_tag_exists"
+                   },
+                   {
+                       "detail":  "tag matches HEAD",
+                       "result":  "PASS",
+                       "name":  "tag_at_head"
+                   },
+                   {
+                       "detail":  "",
+                       "result":  "PASS",
+                       "name":  "no_uncommitted_changes"
+                   },
+                   {
+                       "detail":  "docs\\forms_api_research.md",
+                       "result":  "PASS",
+                       "name":  "file_exists"
+                   },
+                   {
+                       "detail":  "docs\\forms_api_research.md contains all required keywords",
+                       "result":  "PASS",
+                       "name":  "forms_api_research_completeness"
+                   },
+                   {
+                       "detail":  "collected=27, passed=27",
+                       "result":  "PASS",
+                       "name":  "pytest"
+                   }
+               ],
+    "next_phase_blocked":  true,
+    "pytest_passed":  27,
+    "phase_id":  "2.0",
+    "vitest_passed":  0
+}
