@@ -1,0 +1,77 @@
+{
+    "vitest_collected":  0,
+    "errors_count":  0,
+    "phase_id":  "2.2",
+    "approval_required":  false,
+    "git_head_at_check":  "58f44d4a798fd90fae8d2f5ddee8dd6fb3e6c1ee",
+    "overall_result":  "PASS",
+    "vitest_passed":  0,
+    "pytest_passed":  43,
+    "checked_at":  "2026-06-29T07:36:29+09:00",
+    "pytest_collected":  43,
+    "detail_logs":  {
+
+                    },
+    "checks":  [
+                   {
+                       "detail":  "No changes in audit-protected paths",
+                       "result":  "PASS",
+                       "name":  "audit_trail_integrity"
+                   },
+                   {
+                       "detail":  "Check-PhaseDone.ps1 has no uncommitted changes",
+                       "result":  "PASS",
+                       "name":  "check_script_unmodified"
+                   },
+                   {
+                       "detail":  "docs\\handoff_phase2_2.md",
+                       "result":  "PASS",
+                       "name":  "handoff_file_exists"
+                   },
+                   {
+                       "detail":  "phase2.2-done",
+                       "result":  "PASS",
+                       "name":  "git_tag_exists"
+                   },
+                   {
+                       "detail":  "tag matches HEAD",
+                       "result":  "PASS",
+                       "name":  "tag_at_head"
+                   },
+                   {
+                       "detail":  "",
+                       "result":  "PASS",
+                       "name":  "no_uncommitted_changes"
+                   },
+                   {
+                       "detail":  "backend\\app\\services\\google_forms.py",
+                       "result":  "PASS",
+                       "name":  "file_exists"
+                   },
+                   {
+                       "detail":  "backend\\tests\\test_google_forms_service.py",
+                       "result":  "PASS",
+                       "name":  "file_exists"
+                   },
+                   {
+                       "detail":  "test(phase2.2) found at index 1",
+                       "result":  "PASS",
+                       "name":  "tdd_test_commit"
+                   },
+                   {
+                       "detail":  "test commit (idx=1) before feat commit (idx=2)",
+                       "result":  "PASS",
+                       "name":  "tdd_order"
+                   },
+                   {
+                       "detail":  "tests failed at test commit (as expected for TDD RED)",
+                       "result":  "PASS",
+                       "name":  "tdd_strict_red"
+                   },
+                   {
+                       "detail":  "collected=43, passed=43",
+                       "result":  "PASS",
+                       "name":  "pytest"
+                   }
+               ]
+}
