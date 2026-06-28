@@ -261,8 +261,56 @@ RED コミット時点で 11 件全失敗（`ImportError: cannot import name 'po
 - `backend/app/services/polling.py`（新規）
 - `backend/app/api/responses.py`（新規）
 - `backend/tests/test_polling.py`（新規・8 件）
-- `backend/tests/test_responses_api.py`（新規・3 件）
+- `backend/tests/test_responses_api.py`（新規・5 件 = 初期 3 件 + idiomatic 化後の回帰 2 件）
 - `backend/app/repositories/file_repository.py`（`FileResponseRepository` 本実装）
 - `backend/app/main.py`（ルータ登録 2 行追加）
 - `backend/tests/test_repositories.py`（骨格テスト 1 件削除）
 - `docs/handoff_phase2_3.md`（本ドキュメント）
+
+## 追記：ロガー呼び出しの idiomatic 化と回帰テスト追加
+
+GREEN コミット後、`file_repository.py` 冒頭に置いていた薄いラッパ関数
+
+```python
+_logger = logging.getLogger(__name__)
+
+def logger_warning(msg: str) -> None:
+    _logger.warning(msg)
+```
+
+を削除し、`polling.py` と同じ流儀
+
+```python
+logger = logging.getLogger(__name__)
+# 呼び出し側は logger.warning("...", arg) を直接使う（lazy formatting）
+```
+
+に揃えた。置換箇所：`list_all` 内 2 箇所 + `get_pending_student_numbers` 内 1 箇所、計 3 箇所。
+
+### 経緯
+
+コーディネータ経由で「Pyright が `logger_warning` を未定義として検出している
+（NameError リスク）」との指摘を受けた。**ただし `logger_warning` は実際には
+`_logger.warning(msg)` を呼ぶ helper 関数として定義済み**であり、Pyright が
+それを undefined と判定する状況は通常発生しない（タスク指示にも「Pyright は
+`.venv` 未検出による偽陽性が出る」と明記されている）。
+
+したがって NameError は実機では発生しない（GREEN 時点の 53 テストは全 PASS で
+あったし、防御パスを通る人工再現テストを追加した後も同じ）。だが指摘の根本である
+「ラッパ helper は不要、`logger.warning(...)` を直接呼ぶのが Python 慣習」は
+妥当なため、cleanup として idiomatic 化を実施した。あわせて防御パス（
+非整数ディレクトリ名・壊れた JSON）の回帰テストを `test_responses_api.py` に
+2 件追加し、当該パスが exercise されることを保証した。
+
+### 追加テスト
+
+- `test_list_all_skips_non_integer_student_dir`：`responses/garbage/dummy.json`
+  混入時に `list_all` が落ちず、有効回答のみ返すこと
+- `test_list_all_skips_broken_json_files`：整数ディレクトリ配下に
+  パース不能 JSON を置いても `list_all` がスキップして処理継続すること
+
+これにより防御パス（元コードでも分岐としては存在したが exercise されていなかった）
+が回帰テストでカバーされる。テスト総数：**53 + 2 = 55 件、全 PASS**。
+
+タグ `phase2.3-done` は本 cleanup コミット後の HEAD に force 移動済み
+（`git tag -f phase2.3-done HEAD`）。

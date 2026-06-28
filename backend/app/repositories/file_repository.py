@@ -36,12 +36,10 @@ from app.repositories.base import (
 )
 
 
-_logger = logging.getLogger(__name__)
-
-
-def logger_warning(msg: str) -> None:
-    """1 行警告ログを出すヘルパ（モジュール logger の薄いラッパ）。"""
-    _logger.warning(msg)
+# Phase 2.3 で polling.py の流儀（``logger = logging.getLogger(__name__)`` 直接利用）に揃える。
+# 当初は ``logger_warning(msg)`` という薄いラッパを置いていたが、
+# 呼び出し側を ``logger.warning(...)`` に直接置き換えて helper を削除した（idiomatic 化）。
+logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -396,8 +394,8 @@ class FileResponseRepository(_SettingsBacked, ResponseRepository):
             try:
                 int(student_dir.name)
             except ValueError:
-                logger_warning(
-                    f"unexpected non-integer student dir: {student_dir}"
+                logger.warning(
+                    "unexpected non-integer student dir: %s", student_dir
                 )
                 continue
             for path in student_dir.glob("*.json"):
@@ -406,8 +404,8 @@ class FileResponseRepository(_SettingsBacked, ResponseRepository):
                         Response.model_validate(_read_json(path))
                     )
                 except Exception as exc:
-                    logger_warning(
-                        f"failed to parse response file {path}: {exc}"
+                    logger.warning(
+                        "failed to parse response file %s: %s", path, exc
                     )
                     continue
         return results
@@ -461,8 +459,8 @@ class FileResponseRepository(_SettingsBacked, ResponseRepository):
         try:
             project = Project.model_validate(_read_json(project_json_path))
         except Exception as exc:
-            logger_warning(
-                f"failed to parse project.json for pending calc: {exc}"
+            logger.warning(
+                "failed to parse project.json for pending calc: %s", exc
             )
             return set()
         all_sns: set[int] = set(project.student_numbers)

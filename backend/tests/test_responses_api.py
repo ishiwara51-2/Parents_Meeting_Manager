@@ -258,3 +258,101 @@ def test_get_responses_endpoint_returns_latest_per_student(
     by_sn = {item["student_number"]: item for item in body}
     assert by_sn[1]["google_form_response_id"] == "R2"
     assert by_sn[2]["google_form_response_id"] == "R3"
+
+
+# ---------------------------------------------------------------------------
+# 12. 防御パスの回帰テスト：非整数ディレクトリ名はスキップして他は通常通り返す
+# ---------------------------------------------------------------------------
+
+
+def test_list_all_skips_non_integer_student_dir(
+    isolated_data_root: Path,
+) -> None:
+    """``responses/garbage/`` のように出席番号として整数化できない名前の
+    ディレクトリが混入しても、``list_all`` は NameError 等を出さずに当該
+    ディレクトリをスキップし、有効な ``responses/<int>/*.json`` を返す。
+
+    （元実装で `logger_warning` ヘルパを使っていた防御パスを idiomatic な
+    ``logger.warning(...)`` に置き換えた際の回帰テスト。実装ミスがあると
+    この経路で ``NameError`` が出る。）
+    """
+    settings = get_settings()
+
+    with TestClient(create_app()) as client:
+        project_id = _create_project_and_form_json(client)
+
+        repo = FileResponseRepository(settings)
+        # 有効回答 1 件保存
+        repo.save_response(
+            project_id,
+            _make_response(
+                project_id=project_id,
+                sn=1,
+                response_id="R1",
+                submitted_at=datetime(
+                    2026, 6, 28, 10, 0, 0, tzinfo=timezone.utc
+                ),
+            ),
+        )
+
+        # 非整数ディレクトリ名 + ダミー JSON を直接配置
+        responses_dir = settings.projects_dir / project_id / "responses"
+        garbage_dir = responses_dir / "garbage"
+        garbage_dir.mkdir(parents=True, exist_ok=False)
+        (garbage_dir / "dummy.json").write_text(
+            '{"unused": true}', encoding="utf-8"
+        )
+
+        # NameError なく実行できること（これが回帰の主目的）
+        all_responses = repo.list_all(project_id)
+
+    # 有効回答 sn=1 が 1 件返り、garbage 配下は無視される
+    assert len(all_responses) == 1
+    assert all_responses[0].student_number == 1
+    assert all_responses[0].google_form_response_id == "R1"
+
+
+# ---------------------------------------------------------------------------
+# 13. 防御パスの回帰テスト：壊れた JSON ファイルはスキップして処理継続
+# ---------------------------------------------------------------------------
+
+
+def test_list_all_skips_broken_json_files(
+    isolated_data_root: Path,
+) -> None:
+    """整数ディレクトリ配下に壊れた JSON（``not-json``）が混入しても、
+    ``list_all`` は NameError / 例外を伝播させずスキップし、
+    同ディレクトリの有効ファイルは正常に返す。
+    """
+    settings = get_settings()
+
+    with TestClient(create_app()) as client:
+        project_id = _create_project_and_form_json(client)
+        repo = FileResponseRepository(settings)
+
+        # 有効回答を 1 件保存
+        repo.save_response(
+            project_id,
+            _make_response(
+                project_id=project_id,
+                sn=1,
+                response_id="R_VALID",
+                submitted_at=datetime(
+                    2026, 6, 28, 10, 0, 0, tzinfo=timezone.utc
+                ),
+            ),
+        )
+
+        # 同じ sn=1 配下に壊れた JSON を直接置く
+        sn1_dir = settings.projects_dir / project_id / "responses" / "1"
+        (sn1_dir / "20260628_999999.json").write_text(
+            "not-json{{", encoding="utf-8"
+        )
+
+        # NameError なく実行できること、壊れたファイルはスキップされる
+        all_responses = repo.list_all(project_id)
+
+    assert len(all_responses) == 1, (
+        "壊れた JSON はスキップし、有効回答のみ返すべき"
+    )
+    assert all_responses[0].google_form_response_id == "R_VALID"
