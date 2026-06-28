@@ -18,6 +18,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import shutil
 from pathlib import Path
 
@@ -33,6 +34,14 @@ from app.repositories.base import (
     ResponseRepository,
     RuleRepository,
 )
+
+
+_logger = logging.getLogger(__name__)
+
+
+def logger_warning(msg: str) -> None:
+    """1 行警告ログを出すヘルパ（モジュール logger の薄いラッパ）。"""
+    _logger.warning(msg)
 
 
 # ---------------------------------------------------------------------------
@@ -308,28 +317,179 @@ class FileRuleRepository(_SettingsBacked, RuleRepository):
 
 
 class FileResponseRepository(_SettingsBacked, ResponseRepository):
-    """Form 回答をプロジェクト配下にファイル保存する。
+    """Form 回答をプロジェクト配下にファイル保存する（Phase 2.3 本実装）。
 
-    本フェーズは骨格のみ。実装は Phase 2.3。
+    保存先（requirements.md §3.1 / §4.4）::
+
+        <projects_dir>/<project_id>/responses/<出席番号>/<YYYYMMDD_HHMMSS>.json
+
+    同一出席番号からの複数回答はすべて別ファイルとして併存し、
+    後続処理（``list_latest_per_student``）では ``submitted_at`` 最新のもののみ返す。
     """
 
-    def save_response(self, project_id: str, response: Response) -> Path:
-        raise NotImplementedError("Phase 2.3 で実装")
+    RESPONSES_DIR_NAME = "responses"
+    #: タイムスタンプ衝突時の連番付与回数上限（同一秒・同一生徒で 99 件まで安全に扱う）。
+    _MAX_FILENAME_SUFFIX = 99
 
-    def list_latest_per_student(self, project_id: str) -> list[Response]:
-        raise NotImplementedError("Phase 2.3 で実装")
+    # ------------------------------------------------------------------
+    # パス計算
+    # ------------------------------------------------------------------
+
+    def _responses_dir(self, project_id: str) -> Path:
+        return (
+            self.projects_dir / project_id / self.RESPONSES_DIR_NAME
+        )
+
+    def _student_dir(self, project_id: str, student_number: int) -> Path:
+        return self._responses_dir(project_id) / str(student_number)
+
+    # ------------------------------------------------------------------
+    # 永続化
+    # ------------------------------------------------------------------
+
+    def save_response(self, project_id: str, response: Response) -> Path:
+        """回答 1 件をファイルに保存する。
+
+        ファイル名は ``response.submitted_at`` を ``YYYYMMDD_HHMMSS`` に整形して使用する
+        （requirements.md §3.1 / §4.4 のサンプル形式）。
+        同一秒に複数回答が来た場合は ``_NN`` の連番サフィックスで衝突回避する。
+        """
+        student_dir = self._student_dir(project_id, response.student_number)
+        student_dir.mkdir(parents=True, exist_ok=True)
+
+        base = response.submitted_at.strftime("%Y%m%d_%H%M%S")
+        candidate = student_dir / f"{base}.json"
+        if candidate.exists():
+            # 同一秒・同一生徒で複数回答が来た場合の衝突回避
+            for i in range(1, self._MAX_FILENAME_SUFFIX + 1):
+                candidate = student_dir / f"{base}_{i:02d}.json"
+                if not candidate.exists():
+                    break
+            else:
+                raise RuntimeError(
+                    f"ファイル名の連番サフィックスが {self._MAX_FILENAME_SUFFIX} を超過: "
+                    f"{base}.json"
+                )
+
+        _write_json(candidate, response.model_dump(mode="json"))
+        return candidate
+
+    # ------------------------------------------------------------------
+    # 読み出し
+    # ------------------------------------------------------------------
 
     def list_all(self, project_id: str) -> list[Response]:
-        raise NotImplementedError("Phase 2.3 で実装")
+        """全回答ファイルを ``Response`` モデルとして返す（履歴含む）。
+
+        ``responses/`` 以下に存在しない生徒ディレクトリ・壊れた JSON はスキップする。
+        順序は保証しない（呼び出し側でソートする）。
+        """
+        responses_dir = self._responses_dir(project_id)
+        if not responses_dir.is_dir():
+            return []
+
+        results: list[Response] = []
+        for student_dir in responses_dir.iterdir():
+            if not student_dir.is_dir():
+                continue
+            # ディレクトリ名は出席番号（整数）想定。それ以外は壊れたディレクトリとしてスキップ。
+            try:
+                int(student_dir.name)
+            except ValueError:
+                logger_warning(
+                    f"unexpected non-integer student dir: {student_dir}"
+                )
+                continue
+            for path in student_dir.glob("*.json"):
+                try:
+                    results.append(
+                        Response.model_validate(_read_json(path))
+                    )
+                except Exception as exc:
+                    logger_warning(
+                        f"failed to parse response file {path}: {exc}"
+                    )
+                    continue
+        return results
+
+    def list_latest_per_student(self, project_id: str) -> list[Response]:
+        """各出席番号の最新（``submitted_at`` 最大）の回答のみ返す。
+
+        requirements.md §4.4 「後続処理ではファイル名タイムスタンプ最新のものを使用」
+        ※ ファイル名タイムスタンプと ``submitted_at`` は本実装では同一値由来のため、
+        ``submitted_at`` で比較すれば等価。
+        """
+        latest_by_sn: dict[int, Response] = {}
+        for r in self.list_all(project_id):
+            existing = latest_by_sn.get(r.student_number)
+            if existing is None or r.submitted_at > existing.submitted_at:
+                latest_by_sn[r.student_number] = r
+        # 出席番号昇順で返す（UI 表示・テストの安定性のため）
+        return [latest_by_sn[sn] for sn in sorted(latest_by_sn)]
 
     def get_received_student_numbers(self, project_id: str) -> set[int]:
-        raise NotImplementedError("Phase 2.3 で実装")
+        """受領済み出席番号の集合を返す。
+
+        ``responses/<sn>/`` ディレクトリの存在＋少なくとも 1 つの ``.json`` ファイルを基準。
+        """
+        responses_dir = self._responses_dir(project_id)
+        if not responses_dir.is_dir():
+            return set()
+        received: set[int] = set()
+        for child in responses_dir.iterdir():
+            if not child.is_dir():
+                continue
+            try:
+                sn = int(child.name)
+            except ValueError:
+                continue
+            if any(child.glob("*.json")):
+                received.add(sn)
+        return received
 
     def get_pending_student_numbers(self, project_id: str) -> set[int]:
-        raise NotImplementedError("Phase 2.3 で実装")
+        """未受領出席番号の集合を返す（プロジェクトの全生徒 − 受領済み）。
+
+        生徒名簿は ``project.json`` の ``student_numbers`` フィールド
+        （Phase 1.2 で既に定義済み）を直接参照する。
+        """
+        project_json_path = (
+            self.projects_dir / project_id / "project.json"
+        )
+        if not project_json_path.is_file():
+            return set()
+        try:
+            project = Project.model_validate(_read_json(project_json_path))
+        except Exception as exc:
+            logger_warning(
+                f"failed to parse project.json for pending calc: {exc}"
+            )
+            return set()
+        all_sns: set[int] = set(project.student_numbers)
+        return all_sns - self.get_received_student_numbers(project_id)
 
     def get_known_form_response_ids(self, project_id: str) -> set[str]:
-        raise NotImplementedError("Phase 2.3 で実装")
+        """既知の ``google_form_response_id`` 集合（ポーリング重複検知用）。
+
+        全ファイルの JSON を読み ``google_form_response_id`` フィールドだけ抽出する。
+        順序非依存の差分検知（``set`` 演算）に使うため、戻り値も ``set``。
+        """
+        responses_dir = self._responses_dir(project_id)
+        if not responses_dir.is_dir():
+            return set()
+        ids: set[str] = set()
+        for student_dir in responses_dir.iterdir():
+            if not student_dir.is_dir():
+                continue
+            for path in student_dir.glob("*.json"):
+                try:
+                    data = _read_json(path)
+                except Exception:
+                    continue
+                rid = data.get("google_form_response_id")
+                if isinstance(rid, str) and rid:
+                    ids.add(rid)
+        return ids
 
 
 class FileDraftRepository(_SettingsBacked, DraftRepository):

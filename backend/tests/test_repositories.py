@@ -105,7 +105,9 @@ def test_file_draft_repository_can_instantiate() -> None:
 #
 # Phase 2.1 で FileProjectRepository は本実装に置き換えられたため、骨格テストは
 # 削除し、本格テストは tests/test_project_api.py が担う。
-# FileRuleRepository / FileResponseRepository / FileDraftRepository は引き続き
+# Phase 2.3 で FileResponseRepository も本実装に置き換えられたため、骨格テストは
+# 削除し、本格テストは tests/test_responses_api.py / tests/test_polling.py が担う。
+# FileRuleRepository / FileDraftRepository は引き続き
 # 骨格のままなので、NotImplementedError チェックを残す。
 
 
@@ -117,20 +119,6 @@ def test_rule_repository_methods_raise_not_implemented() -> None:
         repo.get_project_rules("dummy")
     with pytest.raises(NotImplementedError):
         repo.copy_global_to_project("dummy")
-
-
-def test_response_repository_methods_raise_not_implemented() -> None:
-    repo = get_response_repository()
-    with pytest.raises(NotImplementedError):
-        repo.list_latest_per_student("dummy")
-    with pytest.raises(NotImplementedError):
-        repo.list_all("dummy")
-    with pytest.raises(NotImplementedError):
-        repo.get_received_student_numbers("dummy")
-    with pytest.raises(NotImplementedError):
-        repo.get_pending_student_numbers("dummy")
-    with pytest.raises(NotImplementedError):
-        repo.get_known_form_response_ids("dummy")
 
 
 def test_draft_repository_methods_raise_not_implemented() -> None:
