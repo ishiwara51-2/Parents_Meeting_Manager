@@ -23,6 +23,7 @@ from pathlib import Path
 
 from app.config import Settings
 from app.models.draft import Draft
+from app.models.form import FormInfo
 from app.models.project import Project
 from app.models.response import Response
 from app.models.rules import GlobalConstraints, Rules
@@ -114,6 +115,7 @@ class FileProjectRepository(_SettingsBacked, ProjectRepository):
 
     PROJECT_FILE_NAME = "project.json"
     RULES_FILE_NAME = "rules.json"
+    FORM_FILE_NAME = "form.json"
     GLOBAL_RULES_FILE_NAME = "global_rules.json"
     SUBDIR_NAMES = ("responses", "drafts", "output")
 
@@ -123,6 +125,9 @@ class FileProjectRepository(_SettingsBacked, ProjectRepository):
 
     def _project_json_path(self, project_id: str) -> Path:
         return self.get_project_dir(project_id) / self.PROJECT_FILE_NAME
+
+    def _form_json_path(self, project_id: str) -> Path:
+        return self.get_project_dir(project_id) / self.FORM_FILE_NAME
 
     def list_all(self) -> list[Project]:
         """全プロジェクトを ``created_at`` 降順で返す。"""
@@ -209,6 +214,44 @@ class FileProjectRepository(_SettingsBacked, ProjectRepository):
                 f"project_id '{project_id}' は存在しません"
             )
         shutil.rmtree(project_dir)
+
+    # ------------------------------------------------------------------
+    # form.json （Phase 2.2 で追加）
+    # ------------------------------------------------------------------
+
+    def has_form(self, project_id: str) -> bool:
+        """``<project_dir>/form.json`` が存在するか。
+
+        Phase 2.2 の Form 作成 API で **二重作成防止判定** に使う。
+        プロジェクト自体の存在は問わない（呼び出し側で先に判定する想定）。
+        """
+        return self._form_json_path(project_id).is_file()
+
+    def get_form_info(self, project_id: str) -> FormInfo | None:
+        """``form.json`` を読み出して ``FormInfo`` として返す。
+
+        ファイルが無ければ ``None``。Phase 2.3 のポーリング・Form 受領状況 API
+        からも参照される想定。
+        """
+        path = self._form_json_path(project_id)
+        if not path.is_file():
+            return None
+        # populate_by_name=True なので camelCase / snake_case 混在キーをそのまま受け入れる
+        return FormInfo.model_validate(_read_json(path))
+
+    def save_form_info(self, project_id: str, form_info: FormInfo) -> Path:
+        """``form.json`` を書き出す。
+
+        Phase 2.2 の Form 作成成功直後に呼ばれる。JSON のキー命名は
+        ``formId`` / ``responderUri`` / ``editUri``（camelCase）と
+        ``student_number_question_id`` / ``row_question_id_by_date`` /
+        ``time_slot_labels``（snake_case）の混在で、``by_alias=True`` で
+        Forms API 由来キーを再現する。
+        """
+        path = self._form_json_path(project_id)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        _write_json(path, form_info.model_dump(mode="json", by_alias=True))
+        return path
 
     # ------------------------------------------------------------------
     # 内部ユーティリティ
