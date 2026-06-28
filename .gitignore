@@ -1,0 +1,44 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+build/
+dist/
+
+# 仮想環境
+.venv/
+venv/
+env/
+
+# 環境変数
+.env
+.env.local
+.env.*.local
+
+# OAuth 秘密情報（requirements.md §3.1）
+oauth_token.json
+oauth_client.json
+
+# Node / フロントエンド（Phase 4.1 以降）
+node_modules/
+frontend/dist/
+.vite/
+
+# Windows 固有
+Thumbs.db
+desktop.ini
+ehthumbs.db
+
+# エディタ
+.vscode/
+.idea/
+*.swp
+*~
+
+# OS
+.DS_Store
