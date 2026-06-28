@@ -1,8 +1,14 @@
-# Claude Code 実装指示プロンプト（Windows版・サブ分割）
+# Claude Code 実装指示プロンプト（Windows版・サブ分割・v3.2）
 
 本プロンプトは、`requirements.md`（Windows版）に基づき、保護者面談調整ツールのプロトタイプをサブステップ単位で段階実装するためのClaude Codeへの指示書である。
 
 **動作環境前提：Windows 10/11、PowerShell 5.1+、Python 3.11+、Node.js 18+、Git for Windows**
+
+**v3 変更点**：Phase 3.3 を 3.3a/3.3b に分割、Phase 4.4 を 4.4a/4.4b/4.4c に分割。全22サブステップ。
+
+**v3.1 変更点（v3 から）**：原則4「Check-PhaseDone.ps1 と check_results\ への絶対禁止事項」を境界明確化。
+
+**v3.2 変更点（v3.1 から）**：原則4を「絶対禁止」から「原則禁止・承認制で許可」に変更。ユーザー承認を経た修正は `fix(check):` プレフィックスで許可。
 
 ---
 
@@ -13,16 +19,64 @@
 - サブステップに着手する前に、`requirements.md` および当該フェーズの先行サブステップで作成された `docs\handoff_*.md` を必ず通読すること
 - 「Phase N.M に着手します。requirements.md の §X-Y を参照しました」と宣言してから実装を開始する
 - 不明点・前提崩れを発見した場合は、実装に進まずユーザーに確認する
+- **作業着手前に必ず `git diff HEAD -- check_results\ Check-PhaseDone.ps1` を実行し、差分がないことを確認**。差分があれば作業を中止し報告する
 
 ### 実装中
 
 - 前サブステップで作成したコードは原則変更しない。変更が必要な場合は理由を明示する
+  - **例外**：`scripts\` 配下の起動スクリプト（`start-dev.ps1` 等）は、Phase 4.1 等で意図的に拡張されることが要件で定められている。当該 Phase の説明に「拡張」と明記されている場合のみ変更可
 - データアクセスは Repository パターンで抽象化する
-- 秘密情報（OAuthトークン、クライアントシークレット等）はリポジトリにコミットしない。`.gitignore` を適切に設定する
+- 秘密情報はリポジトリにコミットしない。`.gitignore` を適切に設定する
 - 日本語コメント・日本語UI文言を許容する
 - **パスは Python では `pathlib.Path` を使用し、文字列リテラルで `\` や `/` を直書きしない**
-- **PowerShell スクリプトは CRLF 改行、それ以外は LF 改行**
-- **ソースコードは UTF-8（BOMなし）、PowerShellスクリプトは UTF-8 BOM 付き**
+- **PowerShell スクリプトは CRLF 改行 + UTF-8 BOM 付き、それ以外は LF 改行 + UTF-8 BOMなし**
+
+### Check-PhaseDone.ps1 と check_results\ への変更（原則禁止、承認制で許可）
+
+`Check-PhaseDone.ps1` および `check_results\` 配下のファイルに対する変更は、**原則として禁止**である。ただし以下のフローを踏んだ場合に限り許可される。
+
+#### 許可される修正フロー
+
+1. **問題発見時、まず修正せず修正方針を提示する**：
+   - 問題のあるファイルと箇所(行番号含む)
+   - 問題の症状
+   - 問題の原因の分析
+   - 推奨される修正方法(diff または patch 形式)
+
+2. **メインエージェント経由でユーザーに伝え、明示的な承認を待つ**
+
+3. **承認後、最小限の修正を実施**
+
+4. **`fix(check):` プレフィックスでコミット**：
+   ```bash
+   git commit -m "fix(check): <修正内容の要約>"
+   ```
+
+#### 許可される修正範囲
+
+- 構文エラーの修正
+- エンコーディング修正(BOM の付け外し)
+- 改行コード変換
+- 軽微なバグ修正
+
+#### ユーザー承認があっても禁止
+
+- 新規ロジックの追加(チェック項目の追加など)
+- 関数定義の大幅な書き換え
+- 結果ファイル(`check_results\*.json`)の編集・削除
+- 詳細ログファイル(`*.pytest.log` 等)の編集・削除
+- 承認ファイル(`check_results\approvals\*.approved`)の作成・編集・削除
+
+#### 絶対禁止
+
+- ユーザー承認を経ない自己判断による変更
+- 「機能を変えない変更ならOK」という解釈での変更
+
+テストが通らない場合は、テスト対象の実装側を修正すること(Check-PhaseDone.ps1 やテストファイルを書き換えて通そうとしないこと)。
+
+### その他
+
+- **完了条件チェック(Check-PhaseDone.ps1)を自分で実行してはならない**。実行はメインエージェントの責務である
 
 ### Git運用
 
@@ -36,13 +90,19 @@
   6. リファクタリングがあれば別コミット
 - commitメッセージは `<type>(phase<N>.<M>): <summary>` 形式
 - 各サブステップ完了時に commit を打ち、完了タグを付ける（例：`git tag phase1.1-done`）
+- **TDD 厳格検証**：`Check-PhaseDone.ps1` は test commit 時点でテストが失敗していたことを `git checkout` + `pytest` で実機検証する。テストと実装を同時にコミットすることや、test commit 時点で既に通るテストを書くことは検知される
 
 ### 完了時
 
 - 当該サブステップで実装した範囲のテストを追加（pytest / vitest）
 - 動作確認手順を README または該当ドキュメントに追記
-- 「次サブステップへの引き継ぎメモ」を `docs\handoff_phase{N}_{M}.md` に作成
-- 「Phase N.M 完了。完了条件チェックリスト: ...」と報告
+- **「次サブステップへの引き継ぎメモ」を `docs\handoff_phase{N}_{M}.md` に作成**。記載必須項目：
+  - 採用方式の決定事項（該当する場合）
+  - 最終コミットハッシュ（`git rev-parse HEAD` の結果）
+  - 主要な実装上のパラメータ・決定
+  - 後続サブステップへの引き継ぎ事項
+  - 未解決の課題・要確認事項（あれば「未確定」「要確認」「保留」のいずれかの語を明記）
+- 「Phase N.M 完了。最終コミット: <hash>」とメインエージェントに報告
 - 当該サブステップの完了条件をすべて満たさない限り次サブステップに進まない
 
 ---
@@ -67,7 +127,7 @@
    - 環境変数 `MEETING_SCHEDULER_DATA_ROOT` でオーバーライド可能（テスト用）
    - 起動時に `APP_DATA_ROOT\config\` と `APP_DATA_ROOT\projects\` を自動作成
    - ポート番号は環境変数 `MEETING_SCHEDULER_PORT`（既定8000）
-5. ヘルスチェック `GET /api/health` の実装
+5. ヘルスチェック `GET /api/health` の実装（`{"status": "ok"}` を返す）
 6. `.gitignore` の整備
    - `__pycache__/`, `*.pyc`, `.venv/`, `venv/`, `.env`
    - OAuth関連：`oauth_token.json`, `oauth_client.json`
@@ -79,7 +139,7 @@
    *.ps1 text eol=crlf
    *.bat text eol=crlf
    ```
-8. `scripts\start-dev.ps1` の作成
+8. `scripts\start-dev.ps1` の作成（**Phase 4.1 で拡張予定であることをコメントで明記**）
    - 仮想環境のアクティベート（存在しない場合は作成）
    - 依存インストール（初回または `pyproject.toml` 変更時）
    - `uvicorn app.main:app --reload --port $env:MEETING_SCHEDULER_PORT` で起動
@@ -97,19 +157,20 @@
 #### 完了条件
 
 - `scripts\setup.ps1` を実行すると仮想環境と依存インストールが完了する
-- `scripts\start-dev.ps1` でサーバが起動する（PowerShell ウィンドウ内で）
+- `scripts\start-dev.ps1` でサーバが起動する
 - ブラウザまたは `Invoke-WebRequest http://localhost:8000/api/health` で200応答
 - 起動時に `%APPDATA%\meeting-scheduler\config\` と `%APPDATA%\meeting-scheduler\projects\` が自動作成される
 - `pytest` でテストが通る
 - `docs\handoff_phase1_1.md` 作成（仮想環境の場所、起動コマンド、デバッグ方法を記載）
 - タグ `phase1.1-done`
 
+**注：`Check-PhaseDone.ps1` は uvicorn を別ポート(18000)で起動して `/api/health` を実機検証するため、起動スクリプトが正常動作しないと完了条件未達となる。**
+
 #### 注意事項
 
 - フロントエンドは本フェーズではまだ作成しない
 - PowerShell スクリプトは UTF-8 BOM 付きで保存
-- スクリプト内で日本語メッセージを使う場合、`chcp 65001` を冒頭で実行するか、`$OutputEncoding = [System.Text.Encoding]::UTF8` を設定
-- Windows Defender のリアルタイム保護で `.venv` 作成が遅い場合がある。実装時に問題なければそのままでよい
+- 「v3 で `scripts\start-dev.ps1` は Phase 4.1 で拡張される」旨を `start-dev.ps1` のヘッダコメントに記載
 
 ---
 
@@ -131,9 +192,8 @@
 3. `backend\app\models\` に Pydantic モデル
    - `requirements.md §3.2` 準拠
    - `Project`, `Rules`, `Response`, `Draft` 等
-   - すべて `pathlib.Path` を扱うフィールドは `str` ではなく `Path` 型で保持
+   - `pathlib.Path` を扱うフィールドは `str` ではなく `Path` 型で保持
 4. DIの仕組み整備
-   - FastAPI の `Depends` で Repository を注入
 5. Repository 骨格のスモークテスト
 
 #### テスト駆動
@@ -144,7 +204,7 @@
 
 - `backend\app\repositories\` 配下に抽象基底と骨格実装
 - `backend\app\models\` に Pydantic モデル
-- `pytest` パス
+- `pytest` パス（最低限 Phase 1.1 のテスト数を維持）
 - `docs\handoff_phase1_2.md` 作成
 - タグ `phase1.2-done`
 
@@ -154,51 +214,56 @@
 
 #### 目的
 
-教師個人のGoogleアカウントで認証し、トークンを永続化できるようにする。
+教師個人のGoogleアカウントで認証し、トークンを永続化できるようにする。**CSRF対策の state パラメータ実装を含む。**
+
+#### 事前確認事項
+
+メインエージェントは Phase 1.3 着手前に、`%APPDATA%\meeting-scheduler\config\oauth_client.json` の配置をユーザーに確認する。未配置なら配置完了まで待つ。
 
 #### 実装範囲
 
 1. 依存追加：`google-auth`, `google-auth-oauthlib`, `google-api-python-client`
 2. `backend\app\services\google_auth.py`
    - 必要スコープは `requirements.md §2.1`
-   - 認可URLの生成
+   - 認可URLの生成（**CSRF対策の state パラメータを含めること**）
    - 認可コードからトークン取得
    - トークン保存：`%APPDATA%\meeting-scheduler\config\oauth_token.json`
    - クライアント認証情報読込：`%APPDATA%\meeting-scheduler\config\oauth_client.json`
    - リフレッシュトークンによる自動更新
-3. APIエンドポイント
-   - `GET /api/auth/google` 認証開始
-   - `GET /api/auth/google/callback` コールバック処理
+3. **CSRF対策の state パラメータ**（requirements.md §2.1 必須）
+   - 認可開始時にランダムな state（例：`secrets.token_urlsafe(32)`）を生成
+   - サーバ側セッション（`itsdangerous` 等のシンプルな仕組み、または `starlette.middleware.sessions`）に保存
+   - コールバック時に受信した state がセッション保存値と一致するか検証
+   - 不一致の場合は HTTP 400 を返す
+4. APIエンドポイント
+   - `GET /api/auth/google` 認証開始（state 生成）
+   - `GET /api/auth/google/callback` コールバック処理（state 検証）
    - `GET /api/auth/status` 認証状態確認
-4. README に GCP セットアップ手順を記載
+5. README に GCP セットアップ手順を記載
    - GCPプロジェクト作成
    - Forms API / Drive API 有効化
    - OAuth同意画面（External / Testing モード / テストユーザー登録）
    - OAuthクライアントID発行（Webアプリケーション）
    - リダイレクトURI：`http://localhost:8000/api/auth/google/callback`
    - `oauth_client.json` のダウンロードと配置場所
-5. テスト
-   - Google APIをモック化した単体テスト
-   - トークン保存/読み込みのテスト
-   - リフレッシュ処理のテスト
-6. PowerShell ヘルパースクリプト `scripts\open-app-data.ps1` を作成
-   - `%APPDATA%\meeting-scheduler\config\` をエクスプローラで開く
-   - ユーザーが `oauth_client.json` を配置しやすくする
+6. テスト（**state パラメータ検証も含めること**）
+   - 認可URL生成が必須スコープと state を含むこと
+   - 認可コードからトークンを取得・保存できること（モック）
+   - 既存トークンを読み込めること
+   - 期限切れトークンが自動リフレッシュされること
+   - 未認証時に `auth/status` が `unauthorized` を返すこと
+   - **state 不一致時にコールバックが 400 を返すこと**
+   - **state がセッションに保存されていない場合にも 400 を返すこと**
 
 #### テスト駆動の指示
 
 OAuthフローはテスト駆動で実装。
 
-1. `backend\tests\test_google_auth.py` に以下のテストケースを書く
-   - 認可URL生成が必須スコープを含むこと
-   - 認可コードからトークンを取得・保存できること（モック）
-   - 既存トークンを読み込めること
-   - 期限切れトークンが自動リフレッシュされること
-   - 未認証時に `auth/status` が `unauthorized` を返すこと
+1. `backend\tests\test_google_auth.py` にテストケース（上記6項目）を書く
 2. すべてのテストが失敗することを確認
-3. テストを `git commit`（`test(phase1.3): add google oauth test cases (RED)`）
+3. テストを `git commit`（`test(phase1.3): add google oauth test cases including state validation (RED)`）
 4. 実装してテストを通す
-5. 実装を `git commit`（`feat(phase1.3): implement google oauth flow (GREEN)`）
+5. 実装を `git commit`（`feat(phase1.3): implement google oauth flow with CSRF state (GREEN)`）
 
 #### 完了条件
 
@@ -206,6 +271,7 @@ OAuthフローはテスト駆動で実装。
 - 認可後に `%APPDATA%\meeting-scheduler\config\oauth_token.json` が作成される
 - `GET /api/auth/status` で認証済み/未認証が判定できる
 - トークン期限切れ時に自動でリフレッシュされる
+- **state 不一致時にコールバックが 400 を返す**
 - 全テストがパスする
 - README にGCPセットアップ手順が記載されている
 - `docs\handoff_phase1_3.md` 作成
@@ -215,7 +281,7 @@ OAuthフローはテスト駆動で実装。
 
 ## Phase 2: Google Form作成・回答受領
 
-### Phase 2.0: Forms API 仕様調査
+### Phase 2.0: Forms API 仕様調査【承認ポイント】
 
 #### 目的
 
@@ -223,21 +289,21 @@ OAuthフローはテスト駆動で実装。
 
 #### 実装範囲
 
-`docs\forms_api_research.md` に以下を記載すること。
+`docs\forms_api_research.md` に以下を**必須項目**として記載すること。`Check-PhaseDone.ps1` はキーワード grep で記載確認する：
 
-1. チェックボックスグリッド（matrix）形式の質問が API で作成可能か
-2. 作成可能な場合のリクエスト構造（サンプルJSON）
-3. 作成不可の場合の代替案（日付ごとに複数選択チェックボックス質問を並べる）の実装可能性とサンプル
-4. `forms.responses.list` のレスポンス構造、特にマトリクス/複数選択回答のパース方法
-5. 整数バリデーション付き短文回答の作成方法
-6. ポーリングAPIのクォータ制限
-7. 必要なスコープの最終確認
+1. **matrix**：チェックボックスグリッド（matrix）形式の質問が API で作成可能か（可否と根拠）
+2. **代替**：作成不可の場合の代替案（日付ごとに複数選択チェックボックス質問を並べる）の実装可能性とサンプル
+3. **responses.list**：`forms.responses.list` のレスポンス構造、特にマトリクス/複数選択回答のパース方法
+4. **整数**：整数バリデーション付き短文回答の作成方法
+5. **クォータ**：ポーリングAPIのクォータ制限（既定60秒間隔で問題ないか）
+6. **scope**：必要なスコープの最終確認
+7. **採用方式**：上記調査を踏まえ、Phase 2.1 で採用する実装方式（matrix or 代替案）を明記
 
 #### 完了条件
 
-- `docs\forms_api_research.md` が作成され、上記7項目すべてに結論が記載されている
-- 調査結果をもとに Phase 2.1 で採用する方式（マトリクス or 代替案）が明示されている
-- **ユーザーへの確認**：調査結果と採用方針を提示し、ユーザーの承認を得てから Phase 2.1 に進む
+- `docs\forms_api_research.md` が作成され、上記7キーワード全てが含まれる
+- 機械的キーワード grep で確認される（実装の質は人間レビューで確認）
+- **承認ポイント**：調査結果と採用方針をユーザーが確認し、承認ファイル作成
 - タグ `phase2.0-done`
 
 ---
@@ -323,7 +389,7 @@ OAuthフローはテスト駆動で実装。
 
 #### 目的
 
-生成済みFormへの回答を取得しファイル保存する。
+生成済みFormへの回答を取得しファイル保存する。**本サブステップ完了時、メインエージェントにセッション再起動を推奨。**
 
 #### 実装範囲
 
@@ -375,15 +441,9 @@ OAuthフローはテスト駆動で実装。
 #### 実装範囲
 
 1. `FileRuleRepository`
-   - `%APPDATA%\meeting-scheduler\config\global_rules.json`
-   - `%APPDATA%\meeting-scheduler\projects\<id>\rules.json`
-2. APIエンドポイント
-   - `GET/PUT /api/global-rules`
-   - `GET/PUT /api/projects/{id}/rules`
+2. APIエンドポイント（GET/PUT for global-rules and project rules）
 3. プロジェクト作成時のグローバルルール複製を本実装に
 4. Rules モデルのバリデーション
-   - ハード/ソフトの区別
-   - 重み0-10
 
 #### テスト駆動
 
@@ -418,11 +478,7 @@ OR-Tools CP-SAT モデルでハード制約を満たす解を返す純粋関数�
    - 入力：受領済み回答リスト、プロジェクト情報、ルール
    - 出力：割当結果（`assignments`, `unassigned_students`, `violated_constraints`）
    - 副作用なし
-3. ハード制約
-   - 候補日時範囲内
-   - 教師不可時間帯除外
-   - 1コマ1生徒
-   - 所要時間倍率
+3. ハード制約（候補日時範囲内、教師不可時間帯除外、1コマ1生徒、所要時間倍率）
 4. 解なし時：違反制約の特定と未配置生徒リスト
 
 #### テスト駆動
@@ -444,47 +500,77 @@ OR-Tools CP-SAT モデルでハード制約を満たす解を返す純粋関数�
 - `docs\handoff_phase3_2.md` 作成
 - タグ `phase3.2-done`
 
-#### 注意事項
-
-- Windows での OR-Tools インストールはホイール提供されており通常問題ないが、Visual C++ 再頒布可能パッケージが必要になる場合がある。エラーが出たら README に明記
-
 ---
 
-### Phase 3.3: スケジューラ（ソフト制約追加）と API
+### Phase 3.3a: スケジューラ（ソフト制約モデル）
+
+**v3 で Phase 3.3 を分割。3.3a はソフト制約モデルとテストのみ、API統合は 3.3b。**
 
 #### 目的
 
-ソフト制約を追加、目的関数で重み付き総和最小化、スケジューリングAPI公開。
+ソフト制約モデルを scheduler.py に追加し、目的関数を重み付き総和最小化として実装する。
 
 #### 実装範囲
 
-1. ソフト制約
+1. ソフト制約の実装
    - 連続コマ数上限・強制空きコマ
    - 1日あたりコマ数上限
    - ペアリング
-   - 時間帯回避・優先
+   - 時間帯回避
+   - 時間帯優先
 2. 目的関数：重み付きペナルティ最小化
-3. `POST /api/projects/{id}/schedule`
-4. パフォーマンス目標：30名・5日×10コマで10秒以内
+3. ソフト制約パラメータの受け取りと変換
 
 #### テスト駆動
 
 1. `backend\tests\test_scheduler_soft.py`
-   - 各ソフト制約検証
-   - 重み挙動
-   - ハード/ソフト混在
-2. `backend\tests\test_schedule_api.py`
-   - API レスポンス構造
-   - 未受領生徒の扱い
-3. パフォーマンステスト
-4. RED → test commit → 実装 → GREEN → feat commit
+   - 各ソフト制約の挙動検証（5種類）
+   - 重み挙動（重みが大きい制約が優先される）
+   - 重み0の制約は無視される
+   - ハード/ソフト混在ケースで妥当な解
+2. RED → test commit → 実装 → GREEN → feat commit
+
+#### 完了条件
+
+- 全テストパス（ハード制約のテストも引き続き通る）
+- `docs\handoff_phase3_3a.md` 作成
+- タグ `phase3.3a-done`
+
+---
+
+### Phase 3.3b: スケジューラ API 統合とパフォーマンステスト【承認ポイント】
+
+**v3 で Phase 3.3 を分割。3.3b は API 統合とパフォーマンス検証。**
+
+#### 目的
+
+3.3a までで実装したスケジューラを API として公開し、パフォーマンス目標を達成する。
+
+#### 実装範囲
+
+1. APIエンドポイント
+   - `POST /api/projects/{id}/schedule`
+2. パフォーマンス目標
+   - 30名・5日×10コマで10秒以内
+   - パフォーマンステスト：`backend\tests\test_schedule_perf.py`（pytest mark で slow とし、通常実行から分離可能に）
+3. パフォーマンス測定結果を `docs\handoff_phase3_3b.md` に記載
+
+#### テスト駆動
+
+1. `backend\tests\test_schedule_api.py`
+   - APIレスポンス構造
+   - 未受領生徒の扱い（除外）
+   - エラー応答
+2. パフォーマンステストは別ファイル `test_schedule_perf.py`
+3. RED → test commit → 実装 → GREEN → feat commit
 
 #### 完了条件
 
 - 全テストパス
-- パフォーマンス目標達成
-- `docs\handoff_phase3_3.md` 作成
-- タグ `phase3.3-done`
+- パフォーマンス目標達成（30名・5日×10コマで10秒以内）
+- `docs\handoff_phase3_3b.md` 作成（パフォーマンス測定値含む）
+- タグ `phase3.3b-done`
+- **承認ポイント**：ユーザーがスケジューラ挙動とパフォーマンスを確認し承認
 
 ---
 
@@ -492,14 +578,11 @@ OR-Tools CP-SAT モデルでハード制約を満たす解を返す純粋関数�
 
 #### 目的
 
-スケジューリング結果のドラフト保存とロック管理。
+スケジューリング結果のドラフト保存とロック管理。**本サブステップ完了時、メインエージェントにセッション再起動を推奨。**
 
 #### 実装範囲
 
 1. `FileDraftRepository`
-   - `drafts\draft_<timestamp>.json` 保存
-   - ロック状態管理
-   - 最新ドラフト取得
 2. APIエンドポイント
    - `POST /api/projects/{id}/drafts`
    - `POST /api/projects/{id}/drafts/unlock`
@@ -509,18 +592,12 @@ OR-Tools CP-SAT モデルでハード制約を満たす解を返す純粋関数�
 #### テスト駆動
 
 1. テストケース
-   - 保存
-   - ロック状態
-   - status遷移
-   - ロック解除
-   - 最新取得
-   - 過去ファイル残置
 2. RED → test commit → 実装 → GREEN → feat commit
 
 #### 完了条件
 
 - 全API動作、自動テスト全パス
-- `docs\handoff_phase3_4.md` 作成（UIフロー想定込み）
+- `docs\handoff_phase3_4.md` 作成
 - タグ `phase3.4-done`
 
 ---
@@ -531,30 +608,30 @@ OR-Tools CP-SAT モデルでハード制約を満たす解を返す純粋関数�
 
 #### 目的
 
-React + TypeScript のプロジェクトを立ち上げ、APIクライアント整備。
+React + TypeScript のプロジェクトを立ち上げ、APIクライアント整備。**vitest を確実にセットアップする。**
 
 #### 実装範囲
 
 1. `frontend\` を Vite + React + TypeScript で初期化
-   ```powershell
-   cd <project-root>
-   npm create vite@latest frontend -- --template react-ts
-   ```
 2. 依存追加
    - React Router
    - 状態管理：Zustand + React Query
    - Tailwind CSS
    - APIクライアント：`openapi-typescript` で型自動生成
-3. `frontend\src\api\` に型付きAPIクライアント
-4. ルーティング骨格（全画面の空コンポーネント配置）
-5. FastAPIから静的ビルド配信設定
-   - 開発：Vite dev server + プロキシ設定
-   - 本番：FastAPI が `frontend\dist\` を配信
-6. `scripts\start-dev.ps1` を拡張
-   - バックエンド起動（バックグラウンド or 別ウィンドウ）
-   - フロントエンド起動（`npm run dev`）
-7. `scripts\start.ps1` を作成
-   - フロントのビルド
+3. **vitest セットアップ（必須）**
+   - `npm install -D vitest @testing-library/react @testing-library/jest-dom jsdom`
+   - `package.json` の `scripts.test` を `"vitest"` に
+   - `vite.config.ts` の test 設定（jsdom 環境、setupFiles）
+   - smoke test 1個（`expect(true).toBe(true)` レベル）を `frontend\tests\smoke.test.ts` に
+4. `frontend\src\api\` に型付きAPIクライアント
+5. ルーティング骨格（全画面の空コンポーネント配置）
+6. FastAPIから静的ビルド配信設定
+7. **`scripts\start-dev.ps1` の拡張（共通指示の例外規定に該当）**
+   - 既存のバックエンド起動ロジックは保持
+   - フロントエンド起動（`npm run dev`）を追加
+   - 引数で backend のみ / frontend のみ / 両方 を切り替えられる構造
+8. `scripts\start.ps1` を新規作成
+   - フロントのビルド（`npm run build`）
    - FastAPI 起動
 
 #### 完了条件
@@ -563,13 +640,15 @@ React + TypeScript のプロジェクトを立ち上げ、APIクライアント�
 - ブラウザで `http://localhost:5173`（Vite dev）または `http://localhost:8000`（本番モード）にアクセス
 - 各画面ルートが404にならない
 - 型付きAPIクライアントが import 可能
-- vitest による smoke test がパス
+- **vitest が `npm test -- --run` で実行でき、smoke test が PASS**
+- `package.json` に `vitest` 依存と `scripts.test` が含まれる
 - `docs\handoff_phase4_1.md` 作成
 - タグ `phase4.1-done`
 
 #### 注意事項
 
-- PowerShell から `npm` を呼び出す際、PowerShell 実行ポリシーが `Restricted` だと npm 関連スクリプトがエラーになる。README で `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned` の手順を案内する
+- PowerShell から `npm` を呼び出す際、PowerShell 実行ポリシーが `Restricted` だと npm 関連スクリプトがエラーになる
+- 「`Check-PhaseDone.ps1` は `package.json` に `vitest` と `test` の文字列が含まれるかチェックする」ことを念頭に置く
 
 ---
 
@@ -581,23 +660,25 @@ React + TypeScript のプロジェクトを立ち上げ、APIクライアント�
 
 #### 実装範囲
 
-1. ホーム画面：プロジェクト一覧 + 新規作成 + ルール設定 + 認証状態
-2. 新規プロジェクト作成画面
-3. グローバルルール設定画面
+**実コンポーネントファイルを必ず作成する：**
+- `frontend\src\pages\HomePage.tsx`：プロジェクト一覧 + 新規作成 + ルール設定 + 認証状態
+- `frontend\src\pages\ProjectNewPage.tsx`：新規プロジェクト作成画面
+- `frontend\src\pages\GlobalRulesPage.tsx`：グローバルルール設定画面
 
 #### テスト駆動
 
-1. `frontend\tests\` 配下にテスト
-   - レンダリング
-   - フォームバリデーション
-   - APIモックを使った作成成功シナリオ
+1. `frontend\tests\` 配下にテスト（最低3ファイル）
+   - `HomePage.test.tsx`：レンダリング、プロジェクト一覧表示、認証状態表示
+   - `ProjectNewPage.test.tsx`：フォームバリデーション、APIモックでの作成成功
+   - `GlobalRulesPage.test.tsx`：ルール設定の保存
 2. RED → test commit → 実装 → GREEN → feat commit
 
 #### 完了条件
 
+- 3つの実コンポーネントファイルが存在
 - ホーム→新規作成→プロジェクト画面遷移
 - グローバルルール設定保存
-- vitest 全パス
+- vitest 全パス（最低 6 test 程度）
 - `docs\handoff_phase4_2.md` 作成
 - タグ `phase4.2-done`
 
@@ -611,14 +692,12 @@ React + TypeScript のプロジェクトを立ち上げ、APIクライアント�
 
 #### 実装範囲
 
-1. プロジェクト画面
-   - メタ情報編集
-   - Form作成ボタン
-   - URL表示+コピー
-   - 受領状況表示
-   - 手動取得+定期ポーリング（60秒）
-   - ルールカスタマイズボタン
-   - 面談日程案作成ボタン
+**実コンポーネントファイル：**
+- `frontend\src\pages\ProjectPage.tsx`
+- `frontend\src\pages\ProjectRulesPage.tsx`
+
+機能：
+1. プロジェクト画面：メタ情報編集、Form作成、URLコピー、受領状況、ポーリング（60秒）、ルールカスタマイズ、面談日程案作成ボタン
 2. プロジェクトルール画面
 
 #### テスト駆動
@@ -632,6 +711,7 @@ React + TypeScript のプロジェクトを立ち上げ、APIクライアント�
 
 #### 完了条件
 
+- 2つの実コンポーネントファイルが存在
 - Form作成→URLコピー→（手動回答）→ポーリングで受領反映
 - 未受領表示の更新
 - ルールカスタマイズ保存
@@ -641,49 +721,132 @@ React + TypeScript のプロジェクトを立ち上げ、APIクライアント�
 
 ---
 
-### Phase 4.4: 日程案表示画面（ドラッグ&ドロップ）
+### Phase 4.4a: 日程案表示画面（マトリクス表示と解なし表示）
+
+**v3 で Phase 4.4 を3分割。4.4a はマトリクス表示と解なし時の情報表示まで。DnDは 4.4b、保存は 4.4c。**
 
 #### 目的
 
-スケジューリング結果のマトリクス表示、DnD修正、保存。
+スケジューリング結果を日付×時間枠マトリクスで表示する画面の骨格を作る。
 
 #### 実装範囲
 
-1. 日程案表示画面
-   - 日程案作成API呼び出し
-   - 日付×時間枠マトリクス
-   - `dnd-kit` でDnD
-   - 候補外移動時の警告
-   - 解なし時の違反制約・未配置リスト
-   - 保存ボタン
-2. 保存完了画面
-   - PDF出力ボタン（Phase 5 で実装の仮置き）
-   - 再編集ボタン
+**実コンポーネントファイル：**
+- `frontend\src\pages\SchedulePage.tsx`
+
+機能：
+1. 日程案作成API呼び出し
+2. 日付×時間枠マトリクス表示
+3. 各セルに割り当てられた出席番号（read-only、まだドラッグ不可）
+4. 解なし時は違反制約と未配置生徒リストを画面上部に表示
 
 #### テスト駆動
 
 1. テストケース
-   - マトリクスレンダリング
-   - DnD入替
-   - 警告
-   - 解なし表示
-   - 保存・ロック・遷移
-   - 再編集
+   - マトリクスのレンダリング
+   - スケジュールAPI のモック呼び出し
+   - 解なし時の違反制約・未配置リスト表示
 2. RED → test commit → 実装 → GREEN → feat commit
 
 #### 完了条件
 
-- ホーム→新規作成→Form→受領→日程案→修正→保存のE2E
-- 警告動作
+- `SchedulePage.tsx` が存在し、マトリクス表示が動作
+- 解なしケースの表示が動作
 - vitest 全パス
-- `docs\handoff_phase4_4.md` 作成
-- タグ `phase4.4-done`
+- `docs\handoff_phase4_4a.md` 作成
+- タグ `phase4.4a-done`
+
+---
+
+### Phase 4.4b: 日程案表示画面（DnD と警告）
+
+**v3 で Phase 4.4 を3分割。4.4b は dnd-kit を用いた DnD と警告ダイアログ。**
+
+#### 目的
+
+Phase 4.4a で作ったマトリクスに、ドラッグ&ドロップによる入れ替え機能と候補外移動時の警告を追加する。
+
+#### 実装範囲
+
+`frontend\src\pages\SchedulePage.tsx` を拡張（**この拡張は共通指示の例外として許可される**：Phase 4.4 シリーズはマトリクスを段階的に機能追加する設計）：
+
+1. `dnd-kit` のセットアップ：`npm install @dnd-kit/core @dnd-kit/sortable`
+2. `DndContext` を使った各セルのドラッグ&ドロップ実装
+3. 移動先が当該生徒の候補日時に含まれない場合の警告ダイアログ
+   - 警告を出すが、操作自体は許可
+   - 警告対象のセルに視覚的マーキング
+
+#### テスト駆動
+
+1. テストケース
+   - ドラッグ操作でオブジェクトが入れ替わる
+   - 移動先が候補日時外の場合に警告が出る
+   - 候補日時内なら警告なし
+2. RED → test commit → 実装 → GREEN → feat commit
+
+#### 完了条件
+
+- `SchedulePage.tsx` に `dnd-kit` と `DndContext` のimport/使用が含まれる
+- DnD 操作が動作
+- 警告ダイアログが動作
+- vitest 全パス
+- `docs\handoff_phase4_4b.md` 作成
+- タグ `phase4.4b-done`
+
+---
+
+### Phase 4.4c: 日程案保存と保存完了画面【承認ポイント】
+
+**v3 で Phase 4.4 を3分割。4.4c は保存・ロック・保存完了画面・再編集。**
+
+#### 目的
+
+日程案を保存し、ロックされた保存完了画面に遷移する。再編集ボタンも実装する。
+
+#### 実装範囲
+
+1. `SchedulePage.tsx` の拡張
+   - 「保存」ボタン
+   - 保存時に `POST /api/projects/{id}/drafts` を呼ぶ
+   - 保存成功時に `SavedPage` へ遷移
+2. **実コンポーネントファイル**：`frontend\src\pages\SavedPage.tsx`
+   - 「PDF出力」ボタン（**Phase 5.2 で実装するため、ここではスタブ**）
+     - クリック時の処理：`console.log("PDF download not yet implemented")` のスタブ
+     - `<button onClick={handleDownloadPdf}>PDF出力</button>` の形で配置
+     - `handleDownloadPdf` 関数を `// TODO: Phase 5.2 で実装` コメント付きで定義
+   - 「再編集」ボタン
+     - クリック時に `POST /api/projects/{id}/drafts/unlock` を呼ぶ
+     - 成功時に `SchedulePage` へ戻る
+
+#### テスト駆動
+
+1. テストケース
+   - 保存ボタンでドラフトAPIモック呼び出し
+   - 保存成功時に SavedPage 遷移
+   - SavedPage の PDF出力ボタンクリックでスタブメッセージ
+   - 再編集ボタンでロック解除APIモック呼び出し
+2. RED → test commit → 実装 → GREEN → feat commit
+
+#### 完了条件
+
+- `SavedPage.tsx` が存在
+- ホーム→新規作成→Form→受領→日程案→修正→保存→保存完了 のE2E が通る
+- PDF出力ボタンはスタブとして配置されている
+- 再編集ボタンが動作
+- vitest 全パス
+- `docs\handoff_phase4_4c.md` 作成
+- タグ `phase4.4c-done`
+- **承認ポイント**：DnD画面の実機操作確認を含めユーザー承認
+
+#### 注意事項
+
+- 本サブステップ完了時、メインエージェントにセッション再起動を推奨
 
 ---
 
 ## Phase 5: PDF出力
 
-### Phase 5.1: PDF生成サービス
+### Phase 5.1: PDF生成サービス【承認ポイント】
 
 #### 目的
 
@@ -691,15 +854,11 @@ React + TypeScript のプロジェクトを立ち上げ、APIクライアント�
 
 #### 実装範囲
 
-1. ReportLab を採用（pip インストールがWindows でも安定）
-2. 日本語フォント
-   - IPAex ゴシックを採用
-   - フォントファイルを `backend\app\fonts\` に配置（リポジトリに含める）
+1. ReportLab を採用
+2. 日本語フォント：IPAex ゴシック
+   - フォントファイルを `backend\app\fonts\ipaexg.ttf` に配置
    - ライセンス表記を README に記載
 3. `backend\app\services\pdf_generator.py`
-   - 入力：ドラフトJSON
-   - 出力：PDFバイト列
-   - A4縦、複数日1ページ、マトリクス
 4. 1ページ超過時の挙動を判断し `docs\pdf_decisions.md` に記載
 
 #### テスト駆動
@@ -718,6 +877,7 @@ React + TypeScript のプロジェクトを立ち上げ、APIクライアント�
 - `docs\pdf_decisions.md` 記載
 - `docs\handoff_phase5_1.md` 作成
 - タグ `phase5.1-done`
+- **承認ポイント**：PDFレイアウトをユーザーが確認し承認
 
 ---
 
@@ -725,14 +885,14 @@ React + TypeScript のプロジェクトを立ち上げ、APIクライアント�
 
 #### 目的
 
-保存完了画面からPDFダウンロード。
+保存完了画面からPDFダウンロード。**Phase 4.4c で配置されたスタブを実装に置き換える。**
 
 #### 実装範囲
 
 1. `GET /api/projects/{id}/pdf`
-   - `application/pdf`
-   - `Content-Disposition: attachment; filename=...`
-2. フロント：保存完了画面のPDF出力ボタン
+2. **フロント：Phase 4.4c で配置した `handleDownloadPdf` を実装に置き換える**
+   - `frontend\src\pages\SavedPage.tsx` の `handleDownloadPdf` を、`/api/projects/{id}/pdf` を呼び出して Blob ダウンロードを行う実装に変更
+   - ローディング表示
 
 #### テスト駆動
 
@@ -765,7 +925,7 @@ E2E確認とエラー時メッセージ整備。
 1. `docs\e2e_test.md` 動作確認手順
 2. `backend\app\logging_config.py` ロギング整備
    - ログファイル：`%APPDATA%\meeting-scheduler\logs\app.log`
-   - ローテーション設定
+   - **`RotatingFileHandler` でローテーション設定**
 3. フロントのエラーバウンダリ
 
 #### テスト
@@ -777,6 +937,7 @@ E2E確認とエラー時メッセージ整備。
 - E2Eケース実機成功
 - エラー時メッセージ表示
 - ログ出力
+- `logging_config.py` に `RotatingFileHandler` 文字列が含まれる
 - `docs\handoff_phase6_1.md` 作成
 - タグ `phase6.1-done`
 
@@ -791,17 +952,7 @@ READMEだけでセットアップ→利用までできる状態に。
 #### 実装範囲
 
 1. README を Windows ユーザー向けに整備
-   - 動作要件（Windows 10/11、Python 3.11+、Node.js 18+、Git for Windows、PowerShell 5.1+）
-   - PowerShell 実行ポリシー設定の手順
-   - GCPセットアップ手順（クライアント認証情報の配置場所込み）
-   - 起動方法：`.\scripts\start-dev.ps1` または `.\scripts\start.ps1`
-   - 既知の制限事項
 2. `scripts\setup.ps1` の完成
-   - Python/Node のバージョンチェック
-   - 仮想環境作成
-   - 依存インストール（バックエンド・フロントエンド）
-   - フロントエンドビルド
-   - 初回起動時の動作確認
 3. `docs\limitations.md`
 4. ライセンスファイル
 
@@ -814,23 +965,23 @@ READMEだけでセットアップ→利用までできる状態に。
 
 ---
 
-## サブステップ依存関係まとめ
+## サブステップ依存関係まとめ（v3 で22サブステップ）
 
 ```
 Phase 1: バックエンド骨組み+OAuth
   1.1 → 1.2 → 1.3
 
 Phase 2: Form作成・受領
-  2.0 → 2.1 → 2.2 → 2.3
+  2.0【承認】→ 2.1 → 2.2 → 2.3 → [セッション再起動推奨]
 
 Phase 3: スケジューリング
-  3.1 → 3.2 → 3.3 → 3.4
+  3.1 → 3.2 → 3.3a → 3.3b【承認】→ 3.4 → [セッション再起動推奨]
 
 Phase 4: フロントエンド
-  4.1 → 4.2 → 4.3 → 4.4
+  4.1 → 4.2 → 4.3 → 4.4a → 4.4b → 4.4c【承認】→ [セッション再起動推奨]
 
 Phase 5: PDF
-  5.1 → 5.2
+  5.1【承認】→ 5.2
 
 Phase 6: 仕上げ
   6.1 → 6.2
@@ -844,11 +995,13 @@ implementation_prompts_subdivided.md の Phase X.Y を実装してください�
 開始前に以下を実施:
 1. requirements.md を通読
 2. 当該フェーズの先行サブステップの docs\handoff_*.md を通読
-3. 「Phase X.Y に着手します」と宣言してから実装開始
+3. git diff HEAD -- check_results\ Check-PhaseDone.ps1 を実行し差分がないことを確認
+4. 「Phase X.Y に着手します」と宣言してから実装開始
 
 テスト駆動の指示があるサブステップでは、
 テストファースト → RED確認 → test commit → 実装 → GREEN確認 → implementation commit
-の順序を厳守してください。
+の順序を厳守してください。test commit 時点でテストが失敗していたことが Check-PhaseDone.ps1 で実機検証されます。
 
-Windows ネイティブ環境（PowerShell）前提のため、パス区切りや改行コードに注意してください。
+Check-PhaseDone.ps1 および check_results\ 配下のファイルは編集禁止です。
+完了条件チェックは自分で実行しないこと（メインエージェントの責務）。
 ```

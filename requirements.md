@@ -61,6 +61,7 @@
   - `https://www.googleapis.com/auth/forms.responses.readonly`
   - `https://www.googleapis.com/auth/drive.file`
 - 教師自身のGoogle Drive配下にFormが作成される
+- **CSRF対策**：認可開始時にランダムな `state` パラメータを生成しサーバ側セッションに保存。コールバック時に `state` の一致を検証する。不一致の場合は 400 を返す（OAuth 2.0 RFC 6749 §10.12 準拠）
 
 ### 2.2 起動方式
 
