@@ -1,0 +1,67 @@
+{
+    "vitest_collected":  0,
+    "errors_count":  0,
+    "phase_id":  "1.2",
+    "approval_required":  false,
+    "git_head_at_check":  "f23c7dc537cc7d1c98e41650eef25684113498fa",
+    "overall_result":  "PASS",
+    "vitest_passed":  0,
+    "pytest_passed":  20,
+    "checked_at":  "2026-06-28T23:22:28+09:00",
+    "pytest_collected":  20,
+    "detail_logs":  {
+
+                    },
+    "checks":  [
+                   {
+                       "detail":  "No changes in audit-protected paths",
+                       "result":  "PASS",
+                       "name":  "audit_trail_integrity"
+                   },
+                   {
+                       "detail":  "Check-PhaseDone.ps1 has no uncommitted changes",
+                       "result":  "PASS",
+                       "name":  "check_script_unmodified"
+                   },
+                   {
+                       "detail":  "docs\\handoff_phase1_2.md",
+                       "result":  "PASS",
+                       "name":  "handoff_file_exists"
+                   },
+                   {
+                       "detail":  "phase1.2-done",
+                       "result":  "PASS",
+                       "name":  "git_tag_exists"
+                   },
+                   {
+                       "detail":  "tag matches HEAD",
+                       "result":  "PASS",
+                       "name":  "tag_at_head"
+                   },
+                   {
+                       "detail":  "",
+                       "result":  "PASS",
+                       "name":  "no_uncommitted_changes"
+                   },
+                   {
+                       "detail":  "backend\\app\\repositories",
+                       "result":  "PASS",
+                       "name":  "file_exists"
+                   },
+                   {
+                       "detail":  "backend\\app\\models",
+                       "result":  "PASS",
+                       "name":  "file_exists"
+                   },
+                   {
+                       "detail":  "backend\\app\\repositories\\base.py",
+                       "result":  "PASS",
+                       "name":  "file_exists"
+                   },
+                   {
+                       "detail":  "collected=20, passed=20",
+                       "result":  "PASS",
+                       "name":  "pytest"
+                   }
+               ]
+}
