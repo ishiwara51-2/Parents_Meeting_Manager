@@ -111,14 +111,9 @@ def test_file_draft_repository_can_instantiate() -> None:
 # 骨格のままなので、NotImplementedError チェックを残す。
 
 
-def test_rule_repository_methods_raise_not_implemented() -> None:
-    repo = get_rule_repository()
-    with pytest.raises(NotImplementedError):
-        repo.get_global_rules()
-    with pytest.raises(NotImplementedError):
-        repo.get_project_rules("dummy")
-    with pytest.raises(NotImplementedError):
-        repo.copy_global_to_project("dummy")
+# Phase 3.1 で FileRuleRepository が本実装に置き換えられたため、
+# NotImplementedError を確認していたスモークテストを削除。
+# ルール操作の本格テストは tests/test_rules_api.py が担う。
 
 
 def test_draft_repository_methods_raise_not_implemented() -> None:

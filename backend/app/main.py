@@ -24,6 +24,7 @@ from app.api.auth import router as auth_router
 from app.api.forms import router as forms_router
 from app.api.projects import router as projects_router
 from app.api.responses import router as responses_router
+from app.api.rules import router as rules_router
 from app.config import get_settings
 
 
@@ -85,6 +86,7 @@ def create_app() -> FastAPI:
     application.include_router(projects_router)
     application.include_router(forms_router)
     application.include_router(responses_router)
+    application.include_router(rules_router)
 
     return application
 

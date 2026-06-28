@@ -32,9 +32,9 @@ from datetime import date, datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.dependencies import get_project_repository
+from app.dependencies import get_project_repository, get_rule_repository
 from app.models.project import Project, ProjectStatus, TimeSlot
-from app.repositories.base import ProjectRepository
+from app.repositories.base import ProjectRepository, RuleRepository
 
 
 router = APIRouter(prefix="/api/projects", tags=["projects"])
@@ -108,12 +108,18 @@ def _now_local_aware() -> datetime:
 def create_project(
     payload: ProjectCreateRequest,
     repo: ProjectRepository = Depends(get_project_repository),
+    rule_repo: RuleRepository = Depends(get_rule_repository),
 ) -> Project:
     """新規プロジェクトを作成する。
 
     ``project_id`` と ``created_at`` はサーバが採番・付与する。
-    プロジェクトディレクトリ・サブディレクトリ（responses/, drafts/, output/）と
-    ``rules.json`` の初期化は ``FileProjectRepository.create()`` の責務。
+
+    プロジェクトディレクトリ・サブディレクトリ（responses/, drafts/, output/）は
+    ``FileProjectRepository.create()`` が作成する。
+
+    ``rules.json`` は Phase 3.1 以降 ``RuleRepository.copy_global_to_project()``
+    で生成する（依存方向：API → RuleRepository。Phase 2.1 の暫定実装
+    ``_initialize_project_rules`` はここで置き換え済み）。
     """
     project = Project(
         project_id=_generate_project_id(),
@@ -125,7 +131,10 @@ def create_project(
         candidate_time_slots=payload.candidate_time_slots,
         student_numbers=payload.student_numbers,
     )
-    return repo.create(project)
+    created = repo.create(project)
+    # グローバルルールをプロジェクトルールとして複製（requirements.md §4.5.2）
+    rule_repo.copy_global_to_project(created.project_id)
+    return created
 
 
 @router.get("", response_model=list[Project])

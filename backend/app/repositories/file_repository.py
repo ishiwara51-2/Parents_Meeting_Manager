@@ -191,8 +191,9 @@ class FileProjectRepository(_SettingsBacked, ProjectRepository):
             project.model_dump(mode="json"),
         )
 
-        # rules.json（グローバルルールがあれば複製、無ければ既定）
-        self._initialize_project_rules(project.project_id)
+        # rules.json は API ハンドラから FileRuleRepository.copy_global_to_project()
+        # 経由で生成する（Phase 3.1 本実装）。
+        # Phase 2.1 の _initialize_project_rules() はここで削除された。
 
         return project
 
@@ -260,58 +261,95 @@ class FileProjectRepository(_SettingsBacked, ProjectRepository):
         _write_json(path, form_info.model_dump(mode="json", by_alias=True))
         return path
 
-    # ------------------------------------------------------------------
-    # 内部ユーティリティ
-    # ------------------------------------------------------------------
-
-    def _initialize_project_rules(self, project_id: str) -> None:
-        """プロジェクト作成時の ``rules.json`` 初期化。
-
-        Phase 2.1 暫定実装：
-
-        - グローバルルール (``<config_dir>/global_rules.json``) が存在すれば内容を複製
-        - 存在しなければ ``_DEFAULT_RULES`` を書き出す
-
-        Phase 3.1 で ``FileRuleRepository.copy_global_to_project()`` 本実装に
-        移管されたら、本処理は API ハンドラ側からその呼び出しに置換される想定
-        （依存方向：API → RuleRepository）。
-        """
-        rules_path = self.get_project_dir(project_id) / self.RULES_FILE_NAME
-        global_rules_path = self.config_dir / self.GLOBAL_RULES_FILE_NAME
-
-        if global_rules_path.is_file():
-            # 既存グローバルルールを Rules モデル経由で検証してから書き戻す
-            try:
-                rules = Rules.model_validate(_read_json(global_rules_path))
-            except Exception:
-                # 壊れていれば既定値で初期化
-                rules = _DEFAULT_RULES
-        else:
-            rules = _DEFAULT_RULES
-
-        _write_json(rules_path, rules.model_dump(mode="json"))
 
 
 class FileRuleRepository(_SettingsBacked, RuleRepository):
-    """グローバルルールとプロジェクトルールをファイルで永続化する。
+    """グローバルルールとプロジェクトルールをファイルで永続化する（Phase 3.1 本実装）。
 
-    本フェーズ（Phase 2.1）では Phase 3.1 で実装するメソッドの骨格を維持する。
+    ファイル配置（requirements.md §3.1）::
+
+        <config_dir>/global_rules.json          ← グローバルルール
+        <projects_dir>/<project_id>/rules.json  ← プロジェクトルール
+
+    グローバルルールはプロジェクト新規作成時に ``copy_global_to_project()`` で
+    プロジェクトルールとして複製される（requirements.md §4.5.2）。
+    両者は独立したファイルに永続化されるため、一方の更新が他方に波及しない。
     """
 
+    GLOBAL_RULES_FILE_NAME = "global_rules.json"
+    RULES_FILE_NAME = "rules.json"
+
     def get_global_rules(self) -> Rules:
-        raise NotImplementedError("Phase 3.1 で実装")
+        """グローバルルールを取得する。
+
+        ``<config_dir>/global_rules.json`` が存在しない場合または破損している場合は
+        ``_DEFAULT_RULES`` を書き出してから返す（初回アクセス時の初期化）。
+        """
+        path = self.config_dir / self.GLOBAL_RULES_FILE_NAME
+        if path.is_file():
+            try:
+                return Rules.model_validate(_read_json(path))
+            except Exception as exc:
+                logger.warning(
+                    "global_rules.json の読み込みに失敗しました。既定値で初期化します: %s", exc
+                )
+        # 初回または破損時：既定値を書き出してから返す
+        return self.set_global_rules(_DEFAULT_RULES)
 
     def set_global_rules(self, rules: Rules) -> Rules:
-        raise NotImplementedError("Phase 3.1 で実装")
+        """グローバルルールを上書き保存する。
+
+        ``<config_dir>`` が存在しない場合は冪等に作成する。
+        """
+        self.config_dir.mkdir(parents=True, exist_ok=True)
+        path = self.config_dir / self.GLOBAL_RULES_FILE_NAME
+        _write_json(path, rules.model_dump(mode="json"))
+        return rules
 
     def get_project_rules(self, project_id: str) -> Rules:
-        raise NotImplementedError("Phase 3.1 で実装")
+        """プロジェクトルールを取得する。
+
+        ``<projects_dir>/<project_id>/rules.json`` が存在しない場合は
+        ``FileNotFoundError`` を送出する。
+        API 層でプロジェクト存在確認の後に呼ぶこと（404 変換の責務は API 層）。
+        """
+        path = self.projects_dir / project_id / self.RULES_FILE_NAME
+        if not path.is_file():
+            raise FileNotFoundError(
+                f"project '{project_id}' の rules.json が存在しません"
+            )
+        return Rules.model_validate(_read_json(path))
 
     def set_project_rules(self, project_id: str, rules: Rules) -> Rules:
-        raise NotImplementedError("Phase 3.1 で実装")
+        """プロジェクトルールを上書き保存する。
+
+        プロジェクトディレクトリが存在しない場合は ``FileNotFoundError``。
+        """
+        project_dir = self.projects_dir / project_id
+        if not project_dir.is_dir():
+            raise FileNotFoundError(
+                f"project '{project_id}' のディレクトリが存在しません"
+            )
+        path = project_dir / self.RULES_FILE_NAME
+        _write_json(path, rules.model_dump(mode="json"))
+        return rules
 
     def copy_global_to_project(self, project_id: str) -> Rules:
-        raise NotImplementedError("Phase 3.1 で実装")
+        """グローバルルールをプロジェクトルールとして複製する。
+
+        プロジェクト新規作成時に API 層から呼ばれる（requirements.md §4.5.2）。
+        ``get_global_rules()`` 経由で既定値初期化も含めて取得し、
+        ``<projects_dir>/<project_id>/rules.json`` に書き出す。
+
+        プロジェクトディレクトリは呼び出し前に作成済みであることが前提
+        （``FileProjectRepository.create()`` でディレクトリ作成済み）。
+        """
+        rules = self.get_global_rules()
+        project_dir = self.projects_dir / project_id
+        project_dir.mkdir(parents=True, exist_ok=True)
+        path = project_dir / self.RULES_FILE_NAME
+        _write_json(path, rules.model_dump(mode="json"))
+        return rules
 
 
 class FileResponseRepository(_SettingsBacked, ResponseRepository):
