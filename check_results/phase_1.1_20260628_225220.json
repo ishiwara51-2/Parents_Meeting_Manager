@@ -1,0 +1,92 @@
+{
+    "vitest_collected":  0,
+    "errors_count":  1,
+    "phase_id":  "1.1",
+    "approval_required":  false,
+    "git_head_at_check":  "96e42daae14e988ff41c63940b7ae242636b8094",
+    "overall_result":  "FAIL",
+    "vitest_passed":  0,
+    "pytest_passed":  2,
+    "checked_at":  "2026-06-28T22:52:29+09:00",
+    "pytest_collected":  2,
+    "detail_logs":  {
+
+                    },
+    "checks":  [
+                   {
+                       "detail":  "All changes in range use legitimate prefixes (chore(check), fix(check), chore(approval))",
+                       "result":  "PASS",
+                       "name":  "audit_trail_integrity"
+                   },
+                   {
+                       "detail":  "Check-PhaseDone.ps1 has no uncommitted changes",
+                       "result":  "PASS",
+                       "name":  "check_script_unmodified"
+                   },
+                   {
+                       "detail":  "docs\\handoff_phase1_1.md",
+                       "result":  "PASS",
+                       "name":  "handoff_file_exists"
+                   },
+                   {
+                       "detail":  "phase1.1-done",
+                       "result":  "PASS",
+                       "name":  "git_tag_exists"
+                   },
+                   {
+                       "detail":  "tag is not at HEAD (tag=c26170b742141b1467561622a4864e324e623ef0, head=96e42daae14e988ff41c63940b7ae242636b8094)",
+                       "result":  "FAIL",
+                       "name":  "tag_at_head"
+                   },
+                   {
+                       "detail":  "",
+                       "result":  "PASS",
+                       "name":  "no_uncommitted_changes"
+                   },
+                   {
+                       "detail":  "backend\\app\\main.py",
+                       "result":  "PASS",
+                       "name":  "file_exists"
+                   },
+                   {
+                       "detail":  "backend\\app\\config.py",
+                       "result":  "PASS",
+                       "name":  "file_exists"
+                   },
+                   {
+                       "detail":  "backend\\pyproject.toml",
+                       "result":  "PASS",
+                       "name":  "file_exists"
+                   },
+                   {
+                       "detail":  ".gitignore",
+                       "result":  "PASS",
+                       "name":  "file_exists"
+                   },
+                   {
+                       "detail":  ".gitattributes",
+                       "result":  "PASS",
+                       "name":  "file_exists"
+                   },
+                   {
+                       "detail":  "scripts\\start-dev.ps1",
+                       "result":  "PASS",
+                       "name":  "file_exists"
+                   },
+                   {
+                       "detail":  "scripts\\setup.ps1",
+                       "result":  "PASS",
+                       "name":  "file_exists"
+                   },
+                   {
+                       "detail":  "GET /api/health returned 200",
+                       "result":  "PASS",
+                       "name":  "health_endpoint_200"
+                   },
+                   {
+                       "detail":  "collected=2, passed=2",
+                       "result":  "PASS",
+                       "name":  "pytest"
+                   }
+               ]
+}
