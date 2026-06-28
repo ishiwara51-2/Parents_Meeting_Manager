@@ -21,6 +21,7 @@ from fastapi import FastAPI
 from starlette.middleware.sessions import SessionMiddleware
 
 from app.api.auth import router as auth_router
+from app.api.projects import router as projects_router
 from app.config import get_settings
 
 
@@ -79,6 +80,7 @@ def create_app() -> FastAPI:
         return {"status": "ok"}
 
     application.include_router(auth_router)
+    application.include_router(projects_router)
 
     return application
 

@@ -102,18 +102,11 @@ def test_file_draft_repository_can_instantiate() -> None:
 # ---------------------------------------------------------------------------
 # 4. 骨格メソッドが NotImplementedError を送出すること
 # ---------------------------------------------------------------------------
-
-
-def test_project_repository_methods_raise_not_implemented() -> None:
-    repo = get_project_repository()
-    with pytest.raises(NotImplementedError):
-        repo.list_all()
-    with pytest.raises(NotImplementedError):
-        repo.get("dummy")
-    with pytest.raises(NotImplementedError):
-        repo.delete("dummy")
-    with pytest.raises(NotImplementedError):
-        repo.get_project_dir("dummy")
+#
+# Phase 2.1 で FileProjectRepository は本実装に置き換えられたため、骨格テストは
+# 削除し、本格テストは tests/test_project_api.py が担う。
+# FileRuleRepository / FileResponseRepository / FileDraftRepository は引き続き
+# 骨格のままなので、NotImplementedError チェックを残す。
 
 
 def test_rule_repository_methods_raise_not_implemented() -> None:
