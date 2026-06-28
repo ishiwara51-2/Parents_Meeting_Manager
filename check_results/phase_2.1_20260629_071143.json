@@ -1,0 +1,72 @@
+{
+    "vitest_collected":  0,
+    "errors_count":  0,
+    "phase_id":  "2.1",
+    "approval_required":  false,
+    "git_head_at_check":  "dbd28a4439b96198af231ce250a5b3ed67c76b11",
+    "overall_result":  "PASS",
+    "vitest_passed":  0,
+    "pytest_passed":  35,
+    "checked_at":  "2026-06-29T07:11:46+09:00",
+    "pytest_collected":  35,
+    "detail_logs":  {
+
+                    },
+    "checks":  [
+                   {
+                       "detail":  "All changes in range use legitimate prefixes (chore(check), fix(check), chore(approval))",
+                       "result":  "PASS",
+                       "name":  "audit_trail_integrity"
+                   },
+                   {
+                       "detail":  "Check-PhaseDone.ps1 has no uncommitted changes",
+                       "result":  "PASS",
+                       "name":  "check_script_unmodified"
+                   },
+                   {
+                       "detail":  "docs\\handoff_phase2_1.md",
+                       "result":  "PASS",
+                       "name":  "handoff_file_exists"
+                   },
+                   {
+                       "detail":  "phase2.1-done",
+                       "result":  "PASS",
+                       "name":  "git_tag_exists"
+                   },
+                   {
+                       "detail":  "tag matches HEAD",
+                       "result":  "PASS",
+                       "name":  "tag_at_head"
+                   },
+                   {
+                       "detail":  "",
+                       "result":  "PASS",
+                       "name":  "no_uncommitted_changes"
+                   },
+                   {
+                       "detail":  "backend\\tests\\test_project_api.py",
+                       "result":  "PASS",
+                       "name":  "file_exists"
+                   },
+                   {
+                       "detail":  "test(phase2.1) found at index 2",
+                       "result":  "PASS",
+                       "name":  "tdd_test_commit"
+                   },
+                   {
+                       "detail":  "test commit (idx=2) before feat commit (idx=3)",
+                       "result":  "PASS",
+                       "name":  "tdd_order"
+                   },
+                   {
+                       "detail":  "tests failed at test commit (as expected for TDD RED)",
+                       "result":  "PASS",
+                       "name":  "tdd_strict_red"
+                   },
+                   {
+                       "detail":  "collected=35, passed=35",
+                       "result":  "PASS",
+                       "name":  "pytest"
+                   }
+               ]
+}
