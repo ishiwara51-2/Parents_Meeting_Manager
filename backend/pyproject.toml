@@ -30,3 +30,6 @@ exclude = ["tests*"]
 testpaths = ["tests"]
 python_files = ["test_*.py"]
 addopts = "-ra"
+markers = [
+    "slow: パフォーマンステスト等の重いテスト。通常実行から除外したい場合は `pytest -m \"not slow\"` を使用",
+]
