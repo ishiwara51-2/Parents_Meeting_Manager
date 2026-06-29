@@ -1,0 +1,72 @@
+{
+    "vitest_collected":  0,
+    "errors_count":  0,
+    "phase_id":  "3.4",
+    "approval_required":  false,
+    "git_head_at_check":  "7b6303b868a0ac1f769ad1d89c99b52e747e6c13",
+    "overall_result":  "PASS",
+    "vitest_passed":  0,
+    "pytest_passed":  122,
+    "checked_at":  "2026-06-29T14:08:39+09:00",
+    "pytest_collected":  122,
+    "detail_logs":  {
+
+                    },
+    "checks":  [
+                   {
+                       "detail":  "No changes in audit-protected paths",
+                       "result":  "PASS",
+                       "name":  "audit_trail_integrity"
+                   },
+                   {
+                       "detail":  "Check-PhaseDone.ps1 has no uncommitted changes",
+                       "result":  "PASS",
+                       "name":  "check_script_unmodified"
+                   },
+                   {
+                       "detail":  "docs\\handoff_phase3_4.md",
+                       "result":  "PASS",
+                       "name":  "handoff_file_exists"
+                   },
+                   {
+                       "detail":  "phase3.4-done",
+                       "result":  "PASS",
+                       "name":  "git_tag_exists"
+                   },
+                   {
+                       "detail":  "tag matches HEAD",
+                       "result":  "PASS",
+                       "name":  "tag_at_head"
+                   },
+                   {
+                       "detail":  "",
+                       "result":  "PASS",
+                       "name":  "no_uncommitted_changes"
+                   },
+                   {
+                       "detail":  "backend\\tests\\test_drafts_api.py",
+                       "result":  "PASS",
+                       "name":  "file_exists"
+                   },
+                   {
+                       "detail":  "test(phase3.4) found at index 2",
+                       "result":  "PASS",
+                       "name":  "tdd_test_commit"
+                   },
+                   {
+                       "detail":  "test commit (idx=2) before feat commit (idx=3)",
+                       "result":  "PASS",
+                       "name":  "tdd_order"
+                   },
+                   {
+                       "detail":  "tests failed at test commit (as expected for TDD RED)",
+                       "result":  "PASS",
+                       "name":  "tdd_strict_red"
+                   },
+                   {
+                       "detail":  "collected=122, passed=122",
+                       "result":  "PASS",
+                       "name":  "pytest"
+                   }
+               ]
+}
