@@ -45,7 +45,8 @@ describe('ErrorBoundary', () => {
         <ThrowingComponent />
       </ErrorBoundary>
     )
-    expect(screen.getByText(/再読み込み/)).toBeInTheDocument()
+    // h1 メッセージ・ボタン両方に「再読み込み」が含まれるため getAllByText を使用
+    expect(screen.getAllByText(/再読み込み/).length).toBeGreaterThan(0)
   })
 
   it('再読み込みボタンが表示される', () => {

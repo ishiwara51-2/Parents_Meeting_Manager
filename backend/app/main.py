@@ -33,6 +33,7 @@ from app.api.responses import router as responses_router
 from app.api.rules import router as rules_router
 from app.api.schedule import router as schedule_router
 from app.config import get_settings
+from app.logging_config import configure_logging
 
 
 ENV_SESSION_SECRET = "MEETING_SCHEDULER_SESSION_SECRET"
@@ -57,8 +58,9 @@ def _resolve_session_secret() -> str:
 async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     """アプリのライフサイクルフック。
 
-    起動時にデータディレクトリを冪等に作成する。
+    起動時にロギング設定とデータディレクトリを冪等に初期化する。
     """
+    configure_logging()
     settings = get_settings()
     settings.ensure_directories()
     yield
