@@ -8,7 +8,7 @@
  */
 
 import { useState, useEffect } from 'react'
-import { useParams } from 'react-router-dom'
+import { useParams, useNavigate } from 'react-router-dom'
 import {
   DndContext,
   PointerSensor,
@@ -18,7 +18,7 @@ import {
   useSensors,
 } from '@dnd-kit/core'
 import type { DragEndEvent } from '@dnd-kit/core'
-import { scheduleApi, projectsApi, responsesApi } from '../api'
+import { scheduleApi, projectsApi, responsesApi, draftsApi } from '../api'
 import type {
   SchedulingResult,
   Assignment,
@@ -381,6 +381,7 @@ function ScheduleMatrix({ assignments, project, outOfAvailCells }: ScheduleMatri
 
 export default function SchedulePage() {
   const { projectId } = useParams<{ projectId: string }>()
+  const navigate = useNavigate()
 
   // スケジューリング結果（元データ）
   const [result, setResult] = useState<SchedulingResult | null>(null)
@@ -391,6 +392,10 @@ export default function SchedulePage() {
 
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+
+  // 保存処理の state
+  const [saving, setSaving] = useState(false)
+  const [saveError, setSaveError] = useState<string | null>(null)
 
   // DnD 操作後に更新される割り当て（ミュータブル）
   const [localAssignments, setLocalAssignments] = useState<Assignment[]>([])
@@ -476,6 +481,32 @@ export default function SchedulePage() {
     }
   }
 
+  // ドラフト保存処理
+  async function handleSave() {
+    if (!projectId || !result) return
+    setSaving(true)
+    setSaveError(null)
+    try {
+      await draftsApi.save(projectId, {
+        assignments: localAssignments,
+        unassigned_students: result.unassigned_students,
+        violated_constraints: result.violated_constraints,
+      })
+      navigate(`/projects/${projectId}/saved`)
+    } catch (err) {
+      const e = err as Error & { status?: number }
+      if (e.status === 409) {
+        setSaveError(
+          'このプロジェクトはすでにドラフトが保存されています。再編集するにはアンロックが必要です。',
+        )
+      } else {
+        setSaveError(e.message ?? '保存に失敗しました')
+      }
+    } finally {
+      setSaving(false)
+    }
+  }
+
   // ===== ローディング・エラー表示 =====
 
   if (loading) {
@@ -529,6 +560,43 @@ export default function SchedulePage() {
             outOfAvailCells={outOfAvailCells}
           />
         </DndContext>
+      )}
+
+      {/* 保存ボタン・保存エラー表示 */}
+      {result != null && (
+        <div style={{ marginTop: '16px' }}>
+          {saveError != null && (
+            <div
+              role="alert"
+              style={{
+                color: '#b91c1c',
+                backgroundColor: '#fef2f2',
+                border: '1px solid #f87171',
+                borderRadius: '4px',
+                padding: '8px 12px',
+                marginBottom: '8px',
+              }}
+            >
+              {saveError}
+            </div>
+          )}
+          <button
+            onClick={handleSave}
+            disabled={saving}
+            style={{
+              padding: '10px 24px',
+              fontSize: '1rem',
+              cursor: saving ? 'not-allowed' : 'pointer',
+              backgroundColor: '#2563eb',
+              color: '#fff',
+              border: 'none',
+              borderRadius: '4px',
+              opacity: saving ? 0.6 : 1,
+            }}
+          >
+            {saving ? '保存中...' : '保存'}
+          </button>
+        </div>
       )}
     </div>
   )
