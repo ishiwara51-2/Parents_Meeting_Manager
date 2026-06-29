@@ -1,22 +1,36 @@
 /**
  * SchedulePage のテスト
- * Phase 4.4a - TDD RED フェーズ
+ * Phase 4.4a - TDD RED フェーズ: マトリクス表示・解なし表示
+ * Phase 4.4b - TDD RED フェーズ: DnD と警告ダイアログ
  *
  * テスト対象: requirements.md §4.7
  *   - 日付×時間枠マトリクス表示
  *   - スケジューリングAPI のモック呼び出し
  *   - 解なし時の違反制約・未配置リスト表示
+ *   - ドラッグ&ドロップで入れ替え（Phase 4.4b）
+ *   - 候補日時外移動の警告ダイアログ（Phase 4.4b）
  */
 
 import { render, screen, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { MemoryRouter, Routes, Route } from 'react-router-dom'
-import SchedulePage from '../src/pages/SchedulePage'
+import SchedulePage, {
+  applyDrop,
+  isInAvailability,
+  WarningDialog,
+} from '../src/pages/SchedulePage'
 import * as api from '../src/api'
+import type { Project } from '../src/api/types'
 
 vi.mock('../src/api', () => ({
   scheduleApi: {
     run: vi.fn(),
+  },
+  projectsApi: {
+    get: vi.fn(),
+  },
+  responsesApi: {
+    list: vi.fn(),
   },
 }))
 
@@ -43,6 +57,55 @@ const MOCK_RESULT_INFEASIBLE = {
   ],
 }
 
+// Phase 4.4b: モックデータ
+const MOCK_PROJECT: Project = {
+  project_id: 'test-project-id',
+  display_name: 'Test Project',
+  created_at: '2026-07-01T00:00:00+09:00',
+  status: 'in_progress',
+  slot_minutes: 20,
+  candidate_dates: ['2026-07-15', '2026-07-16'],
+  candidate_time_slots: [
+    { start: '16:00', end: '16:20' },
+    { start: '16:20', end: '16:40' },
+  ],
+  student_numbers: [1, 2, 3],
+}
+
+const MOCK_RESPONSES = [
+  {
+    project_id: 'test-project-id',
+    student_number: 1,
+    submitted_at: '2026-07-01T00:00:00+09:00',
+    google_form_response_id: 'abc1',
+    availability: [
+      { date: '2026-07-15', start: '16:00', end: '16:20' },
+      { date: '2026-07-15', start: '16:20', end: '16:40' },
+      // 2026-07-16 は候補外
+    ],
+  },
+  {
+    project_id: 'test-project-id',
+    student_number: 2,
+    submitted_at: '2026-07-01T00:00:00+09:00',
+    google_form_response_id: 'abc2',
+    availability: [
+      { date: '2026-07-15', start: '16:00', end: '16:20' },
+      { date: '2026-07-15', start: '16:20', end: '16:40' },
+      { date: '2026-07-16', start: '16:00', end: '16:20' },
+    ],
+  },
+  {
+    project_id: 'test-project-id',
+    student_number: 3,
+    submitted_at: '2026-07-01T00:00:00+09:00',
+    google_form_response_id: 'abc3',
+    availability: [
+      { date: '2026-07-16', start: '16:00', end: '16:20' },
+    ],
+  },
+]
+
 /** projectId パラメータ付きルートで SchedulePage をレンダリングするヘルパー */
 function renderSchedulePage(projectId = PROJECT_ID) {
   const queryClient = new QueryClient({
@@ -59,9 +122,14 @@ function renderSchedulePage(projectId = PROJECT_ID) {
   )
 }
 
+// ===== Phase 4.4a テスト（既存）=====
+
 describe('SchedulePage', () => {
   beforeEach(() => {
     vi.resetAllMocks()
+    // Phase 4.4b で追加された API呼び出しのデフォルトモック
+    vi.mocked(api.projectsApi.get).mockResolvedValue(MOCK_PROJECT)
+    vi.mocked(api.responsesApi.list).mockResolvedValue(MOCK_RESPONSES)
   })
 
   it('マウント時に scheduleApi.run が正しい projectId で呼ばれる', async () => {
@@ -123,5 +191,70 @@ describe('SchedulePage', () => {
       // 未配置生徒の出席番号が表示される（"2, 3" or similar）
       expect(screen.getByText(/2.*3|3.*2/)).toBeInTheDocument()
     })
+  })
+})
+
+// ===== Phase 4.4b テスト: DnD と警告 =====
+
+describe('Phase 4.4b: DnD と警告', () => {
+  beforeEach(() => {
+    vi.resetAllMocks()
+    vi.mocked(api.scheduleApi.run).mockResolvedValue(MOCK_RESULT_FEASIBLE)
+    vi.mocked(api.projectsApi.get).mockResolvedValue(MOCK_PROJECT)
+    vi.mocked(api.responsesApi.list).mockResolvedValue(MOCK_RESPONSES)
+  })
+
+  it('ドラッグ可能な生徒カードが data-testid で識別できる', async () => {
+    renderSchedulePage()
+    await waitFor(() => {
+      // 各生徒番号が draggable-student-N という data-testid で識別できる
+      expect(screen.getByTestId('draggable-student-1')).toBeInTheDocument()
+      expect(screen.getByTestId('draggable-student-2')).toBeInTheDocument()
+      expect(screen.getByTestId('draggable-student-3')).toBeInTheDocument()
+    })
+  })
+
+  it('applyDrop: 2つの割り当てを入れ替える（スワップ）', () => {
+    const assignments = [
+      { student_number: 1, date: '2026-07-15', start: '16:00:00', end: '16:20:00' },
+      { student_number: 2, date: '2026-07-15', start: '16:20:00', end: '16:40:00' },
+    ]
+    const result = applyDrop(
+      assignments,
+      '2026-07-15|16:00',  // from: 生徒1
+      '2026-07-15|16:20',  // to: 生徒2
+      MOCK_PROJECT.candidate_time_slots
+    )
+    // スワップ後: スロット位置は固定、生徒番号が入れ替わる
+    const slot1 = result.find(a => a.date === '2026-07-15' && a.start.startsWith('16:00'))
+    const slot2 = result.find(a => a.date === '2026-07-15' && a.start.startsWith('16:20'))
+    expect(slot1?.student_number).toBe(2)
+    expect(slot2?.student_number).toBe(1)
+  })
+
+  it('isInAvailability: 候補日時外を正しく判定する', () => {
+    // 生徒1は 2026-07-16 を候補としていない → false
+    expect(isInAvailability(1, '2026-07-16', '16:00', MOCK_RESPONSES)).toBe(false)
+    // 生徒1は 2026-07-15 16:00 を候補としている → true
+    expect(isInAvailability(1, '2026-07-15', '16:00', MOCK_RESPONSES)).toBe(true)
+    // 生徒2は 2026-07-16 16:00 を候補としている → true
+    expect(isInAvailability(2, '2026-07-16', '16:00', MOCK_RESPONSES)).toBe(true)
+  })
+
+  it('WarningDialog が候補外移動時の情報を表示する', () => {
+    render(
+      <WarningDialog
+        studentNumber={1}
+        date="2026-07-16"
+        start="16:00"
+        onClose={() => {}}
+      />
+    )
+    // 警告ダイアログが表示される
+    expect(screen.getByTestId('warning-dialog')).toBeInTheDocument()
+    // 生徒番号が含まれる
+    expect(screen.getByText(/1/)).toBeInTheDocument()
+    // 日付が含まれる
+    expect(screen.getByText(/2026-07-16/)).toBeInTheDocument()
   })
 })
