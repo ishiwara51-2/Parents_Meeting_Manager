@@ -259,28 +259,47 @@ function Test-TddCommitOrder {
         Test-CheckFail "tdd_order" "test commit must come before feat commit"
     }
 
-    # TDD 厳格検証: test commit 時点で pytest が失敗していたことを確認
-    # 重いので backend テスト対象 Phase のみ実施
-    if ($testCommitHash -and (Test-Path "backend\pyproject.toml")) {
-        Write-Host "    TDD strict verification (checkout test commit and run pytest)..."
+    # TDD 厳格検証: test commit 時点でテストが失敗していたことを確認
+    # test commit で追加されたテストファイル所在 (backend/ or frontend/) を判定し、
+    # それぞれ pytest / vitest を実行する
+    if ($testCommitHash) {
+        $testFilesAdded = git diff-tree --no-commit-id --name-only -r $testCommitHash 2>$null |
+            Where-Object { $_ -match "(^|/)tests?/.*\.(py|ts|tsx)$" }
+        $hasBackendTests = @($testFilesAdded | Where-Object { $_ -match "^backend/" }).Count -gt 0
+        $hasFrontendTests = @($testFilesAdded | Where-Object { $_ -match "^frontend/" }).Count -gt 0
+
+        Write-Host "    TDD strict verification (checkout test commit and run tests)..."
         $currentBranch = git rev-parse --abbrev-ref HEAD 2>$null
         $currentCommit = git rev-parse HEAD 2>$null
         try {
             git stash push --include-untracked --keep-index -m "phase-check-stash" 2>&1 | Out-Null
             git checkout $testCommitHash 2>&1 | Out-Null
 
-            Push-Location "backend"
-            try {
-                $venvPython = Join-Path ".venv" "Scripts\python.exe"
-                if (Test-Path $venvPython) {
-                    $tddOutput = & $venvPython -m pytest --tb=no -q 2>&1 | Out-String
-                } else {
-                    $tddOutput = & python -m pytest --tb=no -q 2>&1 | Out-String
+            $tddExit = 0
+            if ($hasBackendTests -and (Test-Path "backend\pyproject.toml")) {
+                Push-Location "backend"
+                try {
+                    $venvPython = Join-Path ".venv" "Scripts\python.exe"
+                    if (Test-Path $venvPython) {
+                        & $venvPython -m pytest --tb=no -q 2>&1 | Out-Null
+                    } else {
+                        & python -m pytest --tb=no -q 2>&1 | Out-Null
+                    }
+                    if ($LASTEXITCODE -ne 0) { $tddExit = 1 }
                 }
-                $tddExit = $LASTEXITCODE
+                finally {
+                    Pop-Location
+                }
             }
-            finally {
-                Pop-Location
+            if ($hasFrontendTests -and (Test-Path "frontend\package.json")) {
+                Push-Location "frontend"
+                try {
+                    & npm test -- --run 2>&1 | Out-Null
+                    if ($LASTEXITCODE -ne 0) { $tddExit = 1 }
+                }
+                finally {
+                    Pop-Location
+                }
             }
 
             git checkout $currentCommit 2>&1 | Out-Null
