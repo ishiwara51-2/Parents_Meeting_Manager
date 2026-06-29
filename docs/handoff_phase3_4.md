@@ -189,3 +189,13 @@ POST /api/projects/{id}/drafts/unlock  →  再編集時（「再編集」ボタ
 - **保留**：`DraftSaveRequest.save_draft_when_status_draft_saved_returns_409` の
   挙動について、フロントエンドが 409 を受け取った際の UX（「先にアンロックしてください」
   などのメッセージ表示）は Phase 4.4c で実装する際に確認。
+
+---
+
+## 追記：テストファイル名の規約合わせ（リネーム）
+
+Check-PhaseDone.ps1 が backend\tests\test_drafts_api.py（複数形）を期待していたため、
+初期コミット時に作成した test_draft_api.py を git mv でリネームした（履歴追跡保持）。
+中身・テスト件数（18 件）は無変更。pytest はファイル名で自動収集するため、
+test_drafts_api.py でも引き続き全件 PASS。phase3.4-done タグも本リネームコミットに
+force 移動済み。
