@@ -20,6 +20,7 @@ from __future__ import annotations
 import json
 import logging
 import shutil
+import threading
 from pathlib import Path
 
 from app.config import Settings
@@ -531,20 +532,142 @@ class FileResponseRepository(_SettingsBacked, ResponseRepository):
 class FileDraftRepository(_SettingsBacked, DraftRepository):
     """ドラフトを ``<project_dir>\\drafts\\draft_<timestamp>.json`` として永続化する。
 
-    本フェーズは骨格のみ。実装は Phase 3.4。
+    Phase 3.4 本実装。
+
+    ファイル命名規則（requirements.md §3.1 / §4.9）::
+
+        <projects_dir>/<project_id>/drafts/draft_<YYYYMMDD_HHMMSS>.json
+
+    同一秒に複数保存が来た場合は ``draft_<YYYYMMDD_HHMMSS>_<NN>.json`` で連番回避。
+    最新ドラフトは ``saved_at`` の降順で決定する。
+
+    スレッド安全性:
+        クラスレベルの ``threading.Lock`` でシリアライズし、並行書き込みによる
+        JSON 破損を防ぐ（シングルプロセス・マルチスレッドの uvicorn 運用を想定）。
     """
 
+    DRAFTS_DIR_NAME = "drafts"
+    DRAFT_FILE_PREFIX = "draft_"
+    #: 同一秒の連番衝突上限
+    _MAX_FILENAME_SUFFIX = 99
+
+    # クラスレベルのロック（同一プロセス内で共有される）
+    _write_lock: threading.Lock = threading.Lock()
+
+    # ------------------------------------------------------------------
+    # パス計算
+    # ------------------------------------------------------------------
+
+    def _drafts_dir(self, project_id: str) -> Path:
+        return self.projects_dir / project_id / self.DRAFTS_DIR_NAME
+
+    # ------------------------------------------------------------------
+    # 内部: ファイル一覧からドラフト読み込み
+    # ------------------------------------------------------------------
+
+    def _load_all_with_paths(
+        self, project_id: str
+    ) -> list[tuple[Draft, Path]]:
+        """全ドラフトファイルを (Draft, Path) のリストとして返す。
+
+        読み込み失敗ファイルはログ警告を出してスキップする。
+        """
+        drafts_dir = self._drafts_dir(project_id)
+        if not drafts_dir.is_dir():
+            return []
+
+        results: list[tuple[Draft, Path]] = []
+        for path in drafts_dir.glob(f"{self.DRAFT_FILE_PREFIX}*.json"):
+            try:
+                draft = Draft.model_validate(_read_json(path))
+                results.append((draft, path))
+            except Exception as exc:
+                logger.warning("failed to parse draft file %s: %s", path, exc)
+        return results
+
+    # ------------------------------------------------------------------
+    # 永続化
+    # ------------------------------------------------------------------
+
     def save_draft(self, project_id: str, draft: Draft) -> Path:
-        raise NotImplementedError("Phase 3.4 で実装")
+        """ドラフトを新規ファイルとして保存し、保存先パスを返す。
+
+        ファイル名は ``draft.saved_at`` を ``YYYYMMDD_HHMMSS`` に整形して使用。
+        同一秒の重複は ``_NN`` 連番サフィックスで回避する。
+
+        スレッドセーフ：クラスレベルの Lock でシリアライズ。
+        """
+        with self._write_lock:
+            drafts_dir = self._drafts_dir(project_id)
+            drafts_dir.mkdir(parents=True, exist_ok=True)
+
+            base_ts = draft.saved_at.strftime("%Y%m%d_%H%M%S")
+            candidate = drafts_dir / f"{self.DRAFT_FILE_PREFIX}{base_ts}.json"
+
+            if candidate.exists():
+                # 同一秒・複数保存の衝突回避（連番サフィックス）
+                for i in range(1, self._MAX_FILENAME_SUFFIX + 1):
+                    candidate = (
+                        drafts_dir / f"{self.DRAFT_FILE_PREFIX}{base_ts}_{i:02d}.json"
+                    )
+                    if not candidate.exists():
+                        break
+                else:
+                    raise RuntimeError(
+                        f"ドラフトファイル名の連番が上限 {self._MAX_FILENAME_SUFFIX} を超過: "
+                        f"{base_ts}"
+                    )
+
+            _write_json(candidate, draft.model_dump(mode="json"))
+            return candidate
+
+    # ------------------------------------------------------------------
+    # 読み出し
+    # ------------------------------------------------------------------
 
     def get_latest(self, project_id: str) -> Draft | None:
-        raise NotImplementedError("Phase 3.4 で実装")
+        """最新ドラフトを返す。
+
+        最新の判定は ``saved_at`` 降順の先頭（= 最も新しい保存）。
+        ドラフトが 0 件の場合は ``None``。
+        """
+        entries = self._load_all_with_paths(project_id)
+        if not entries:
+            return None
+        # saved_at 降順でソートし先頭を返す
+        entries.sort(key=lambda e: e[0].saved_at, reverse=True)
+        return entries[0][0]
+
+    # ------------------------------------------------------------------
+    # アンロック
+    # ------------------------------------------------------------------
 
     def unlock_latest(self, project_id: str) -> Draft:
-        raise NotImplementedError("Phase 3.4 で実装")
+        """最新ドラフトの ``locked`` を ``False`` に更新して返す。
+
+        最新ドラフトが存在しない場合は ``FileNotFoundError``。
+        更新は対象ファイルを上書きする（requirements.md §4.9 の「ロック解除」）。
+
+        スレッドセーフ：クラスレベルの Lock でシリアライズ。
+        """
+        with self._write_lock:
+            entries = self._load_all_with_paths(project_id)
+            if not entries:
+                raise FileNotFoundError(
+                    f"project '{project_id}' のドラフトが存在しません"
+                )
+            entries.sort(key=lambda e: e[0].saved_at, reverse=True)
+            latest_draft, latest_path = entries[0]
+
+            unlocked = latest_draft.model_copy(update={"locked": False})
+            _write_json(latest_path, unlocked.model_dump(mode="json"))
+            return unlocked
 
     def list_all(self, project_id: str) -> list[Draft]:
-        raise NotImplementedError("Phase 3.4 で実装")
+        """全ドラフトを ``saved_at`` 降順で返す（履歴含む）。"""
+        entries = self._load_all_with_paths(project_id)
+        entries.sort(key=lambda e: e[0].saved_at, reverse=True)
+        return [e[0] for e in entries]
 
 
 __all__ = [

@@ -107,23 +107,10 @@ def test_file_draft_repository_can_instantiate() -> None:
 # 削除し、本格テストは tests/test_project_api.py が担う。
 # Phase 2.3 で FileResponseRepository も本実装に置き換えられたため、骨格テストは
 # 削除し、本格テストは tests/test_responses_api.py / tests/test_polling.py が担う。
-# FileRuleRepository / FileDraftRepository は引き続き
-# 骨格のままなので、NotImplementedError チェックを残す。
-
-
-# Phase 3.1 で FileRuleRepository が本実装に置き換えられたため、
-# NotImplementedError を確認していたスモークテストを削除。
+# Phase 3.1 で FileRuleRepository が本実装に置き換えられたため、骨格テストは削除。
 # ルール操作の本格テストは tests/test_rules_api.py が担う。
-
-
-def test_draft_repository_methods_raise_not_implemented() -> None:
-    repo = get_draft_repository()
-    with pytest.raises(NotImplementedError):
-        repo.get_latest("dummy")
-    with pytest.raises(NotImplementedError):
-        repo.unlock_latest("dummy")
-    with pytest.raises(NotImplementedError):
-        repo.list_all("dummy")
+# Phase 3.4 で FileDraftRepository が本実装に置き換えられたため、骨格テストは削除。
+# ドラフト操作の本格テストは tests/test_draft_api.py が担う。
 
 
 # ---------------------------------------------------------------------------

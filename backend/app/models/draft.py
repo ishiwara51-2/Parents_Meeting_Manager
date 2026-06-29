@@ -15,15 +15,16 @@ requirements.md §3.2 の ``drafts/draft_<timestamp>.json`` スキーマに対�
       "violated_constraints": []
     }
 
-``violated_constraints`` の要素スキーマは Phase 3.2 / 3.3 でスケジューラ実装と合わせて
-確定する。本フェーズではプレースホルダの自由形 dict として保持する。
+Phase 3.4 で ``violated_constraints`` を ``list[str]`` に確定。
+``SchedulingResult.violated_constraints: list[str]``（Phase 3.2 から）と型を揃え、
+SchedulingResult → Draft への変換を無損失で行えるようにした。
+（Phase 1.2 の ``list[dict[str, Any]]`` プレースホルダから変更）
 """
 
 from __future__ import annotations
 
 import datetime as _dt
 from datetime import datetime, time
-from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -57,7 +58,8 @@ class Draft(BaseModel):
     unassigned_students: list[int] = Field(
         default_factory=list, description="未配置となった出席番号"
     )
-    # 違反制約の要素スキーマは Phase 3.2/3.3 で確定。それまで自由形 dict で受ける。
-    violated_constraints: list[dict[str, Any]] = Field(
-        default_factory=list, description="違反したソフト制約の情報"
+    # Phase 3.4 で list[str] に確定。SchedulingResult.violated_constraints と型を揃える。
+    # Phase 1.2 の list[dict[str, Any]] プレースホルダから変更。
+    violated_constraints: list[str] = Field(
+        default_factory=list, description="違反したソフト制約の説明文"
     )

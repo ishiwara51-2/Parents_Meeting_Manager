@@ -21,6 +21,7 @@ from fastapi import FastAPI
 from starlette.middleware.sessions import SessionMiddleware
 
 from app.api.auth import router as auth_router
+from app.api.drafts import router as drafts_router
 from app.api.forms import router as forms_router
 from app.api.projects import router as projects_router
 from app.api.responses import router as responses_router
@@ -89,6 +90,7 @@ def create_app() -> FastAPI:
     application.include_router(responses_router)
     application.include_router(rules_router)
     application.include_router(schedule_router)
+    application.include_router(drafts_router)
 
     return application
 

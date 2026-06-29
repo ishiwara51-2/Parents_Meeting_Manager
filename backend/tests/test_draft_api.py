@@ -119,8 +119,9 @@ class TestSaveDraft:
         resp = client.post(f"/api/projects/{project_id}/drafts", json=payload)
         assert resp.status_code == 201
         body = resp.json()
+        # Pydantic v2 は time を "HH:MM:SS" 形式でシリアライズする
         assert body["assignments"] == [
-            {"student_number": 1, "date": "2026-07-15", "start": "16:00", "end": "16:20"}
+            {"student_number": 1, "date": "2026-07-15", "start": "16:00:00", "end": "16:20:00"}
         ]
         assert body["unassigned_students"] == [5]
         assert body["violated_constraints"] == ["生徒5は候補日時がありません"]
@@ -180,8 +181,9 @@ class TestGetLatestDraft:
         assert resp.status_code == 200
         body = resp.json()
         assert body["locked"] is True
+        # Pydantic v2 は time を "HH:MM:SS" 形式でシリアライズする
         assert body["assignments"] == [
-            {"student_number": 1, "date": "2026-07-15", "start": "16:00", "end": "16:20"}
+            {"student_number": 1, "date": "2026-07-15", "start": "16:00:00", "end": "16:20:00"}
         ]
 
     def test_get_latest_returns_newest_after_multiple_saves(
