@@ -1,11 +1,14 @@
 /**
  * SavedPage のテスト
  * Phase 4.4c - TDD RED フェーズ: 保存完了画面・再編集フロー
+ * Phase 5.2 - PDF ダウンロード実装テスト
  *
  * テスト対象: requirements.md §4.8
- *   - PDF出力ボタンのスタブ表示
+ *   - PDF出力ボタンのスタブ表示（Phase 4.4c）
  *   - 再編集ボタンで draftsApi.unlock を呼ぶ
  *   - unlock 成功時に SchedulePage へ遷移
+ *   - PDF出力ボタンクリック時に /api/projects/{id}/pdf が呼ばれること（Phase 5.2）
+ *   - fetch 失敗時にエラー表示が出ること（Phase 5.2）
  */
 
 import { render, screen, waitFor, fireEvent } from '@testing-library/react'
@@ -70,12 +73,44 @@ describe('SavedPage', () => {
     expect(screen.getByRole('button', { name: '再編集' })).toBeInTheDocument()
   })
 
-  it('「PDF出力」ボタンクリックでスタブメッセージがコンソールに出力される', () => {
-    const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
+  it('「PDF出力」ボタンクリック時に /api/projects/${id}/pdf への fetch が呼ばれる', async () => {
+    // fetch をモック: 正常なPDFレスポンスを返す
+    const mockFetch = vi.fn().mockResolvedValue({
+      ok: true,
+      blob: () => Promise.resolve(new Blob(['%PDF-fake'], { type: 'application/pdf' })),
+    })
+    vi.stubGlobal('fetch', mockFetch)
+    // URL.createObjectURL / revokeObjectURL をモック (jsdom 未実装のため)
+    vi.stubGlobal('URL', {
+      ...URL,
+      createObjectURL: vi.fn().mockReturnValue('blob:http://localhost/test-pdf'),
+      revokeObjectURL: vi.fn(),
+    })
+
     renderSavedPage()
     fireEvent.click(screen.getByRole('button', { name: 'PDF出力' }))
-    expect(consoleSpy).toHaveBeenCalledWith('PDF download not yet implemented')
-    consoleSpy.mockRestore()
+
+    await waitFor(() => {
+      expect(mockFetch).toHaveBeenCalledWith(`/api/projects/${PROJECT_ID}/pdf`)
+    })
+  })
+
+  it('PDF取得失敗時にエラー表示が出る', async () => {
+    // fetch をモック: エラーレスポンスを返す
+    const mockFetch = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 404,
+      statusText: 'Not Found',
+      json: () => Promise.resolve({ detail: 'ドラフトが見つかりません' }),
+    })
+    vi.stubGlobal('fetch', mockFetch)
+
+    renderSavedPage()
+    fireEvent.click(screen.getByRole('button', { name: 'PDF出力' }))
+
+    await waitFor(() => {
+      expect(screen.getByRole('alert')).toBeInTheDocument()
+    })
   })
 
   it('「再編集」ボタンクリックで draftsApi.unlock が正しい projectId で呼ばれる', async () => {
