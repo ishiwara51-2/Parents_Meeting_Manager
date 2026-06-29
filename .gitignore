@@ -10,6 +10,10 @@ __pycache__/
 build/
 dist/
 
+# uv lockfile (local-only per project decision; deps pinned via pyproject.toml)
+backend/uv.lock
+uv.lock
+
 # 仮想環境
 .venv/
 venv/
