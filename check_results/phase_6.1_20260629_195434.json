@@ -1,0 +1,72 @@
+{
+    "vitest_collected":  50,
+    "errors_count":  0,
+    "phase_id":  "6.1",
+    "approval_required":  false,
+    "git_head_at_check":  "c388a0eb2546436189d3f3b120067d030cb2c6aa",
+    "overall_result":  "PASS",
+    "vitest_passed":  50,
+    "pytest_passed":  133,
+    "checked_at":  "2026-06-29T19:54:45+09:00",
+    "pytest_collected":  133,
+    "detail_logs":  {
+
+                    },
+    "checks":  [
+                   {
+                       "detail":  "No changes in audit-protected paths",
+                       "result":  "PASS",
+                       "name":  "audit_trail_integrity"
+                   },
+                   {
+                       "detail":  "Check-PhaseDone.ps1 has no uncommitted changes",
+                       "result":  "PASS",
+                       "name":  "check_script_unmodified"
+                   },
+                   {
+                       "detail":  "docs\\handoff_phase6_1.md",
+                       "result":  "PASS",
+                       "name":  "handoff_file_exists"
+                   },
+                   {
+                       "detail":  "phase6.1-done",
+                       "result":  "PASS",
+                       "name":  "git_tag_exists"
+                   },
+                   {
+                       "detail":  "tag matches HEAD",
+                       "result":  "PASS",
+                       "name":  "tag_at_head"
+                   },
+                   {
+                       "detail":  "",
+                       "result":  "PASS",
+                       "name":  "no_uncommitted_changes"
+                   },
+                   {
+                       "detail":  "docs\\e2e_test.md",
+                       "result":  "PASS",
+                       "name":  "file_exists"
+                   },
+                   {
+                       "detail":  "backend\\app\\logging_config.py",
+                       "result":  "PASS",
+                       "name":  "file_exists"
+                   },
+                   {
+                       "detail":  "backend\\app\\logging_config.py contains all required keywords",
+                       "result":  "PASS",
+                       "name":  "log_rotation_configured"
+                   },
+                   {
+                       "detail":  "collected=133, passed=133",
+                       "result":  "PASS",
+                       "name":  "pytest"
+                   },
+                   {
+                       "detail":  "passed=50",
+                       "result":  "PASS",
+                       "name":  "vitest"
+                   }
+               ]
+}
