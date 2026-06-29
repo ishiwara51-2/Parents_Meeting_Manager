@@ -252,8 +252,8 @@ describe('Phase 4.4b: DnD と警告', () => {
     )
     // 警告ダイアログが表示される
     expect(screen.getByTestId('warning-dialog')).toBeInTheDocument()
-    // 生徒番号が含まれる
-    expect(screen.getByText(/1/)).toBeInTheDocument()
+    // 生徒番号が含まれる（<strong>1</strong> の exact match）
+    expect(screen.getByText('1')).toBeInTheDocument()
     // 日付が含まれる
     expect(screen.getByText(/2026-07-16/)).toBeInTheDocument()
   })
