@@ -160,6 +160,21 @@ Invoke-WebRequest http://localhost:8000/api/health
 
 ---
 
+## サードパーティライセンス
+
+### Noto Sans JP
+
+PDF 出力機能では **Noto Sans JP**（TrueType アウトライン版）を使用しています。
+
+> This product includes Noto Sans CJK JP / Noto Sans JP,
+> licensed under the SIL Open Font License 1.1 (Google/Adobe).
+
+- フォントファイル: `backend/app/fonts/NotoSansCJKjp-Regular.otf`
+- ライセンス全文: `backend/app/fonts/OFL.txt`
+- ライセンス URL: https://scripts.sil.org/OFL
+
+---
+
 ## ディレクトリ構成（Phase 1.1 時点）
 
 ```
