@@ -1,0 +1,87 @@
+{
+    "vitest_collected":  13,
+    "errors_count":  1,
+    "phase_id":  "4.2",
+    "approval_required":  false,
+    "git_head_at_check":  "27c543248b755f15b2d4c7b7c4a4580dc8c2e61a",
+    "overall_result":  "FAIL",
+    "vitest_passed":  13,
+    "pytest_passed":  122,
+    "checked_at":  "2026-06-29T14:31:21+09:00",
+    "pytest_collected":  122,
+    "detail_logs":  {
+
+                    },
+    "checks":  [
+                   {
+                       "detail":  "No changes in audit-protected paths",
+                       "result":  "PASS",
+                       "name":  "audit_trail_integrity"
+                   },
+                   {
+                       "detail":  "Check-PhaseDone.ps1 has no uncommitted changes",
+                       "result":  "PASS",
+                       "name":  "check_script_unmodified"
+                   },
+                   {
+                       "detail":  "docs\\handoff_phase4_2.md",
+                       "result":  "PASS",
+                       "name":  "handoff_file_exists"
+                   },
+                   {
+                       "detail":  "phase4.2-done",
+                       "result":  "PASS",
+                       "name":  "git_tag_exists"
+                   },
+                   {
+                       "detail":  "tag matches HEAD",
+                       "result":  "PASS",
+                       "name":  "tag_at_head"
+                   },
+                   {
+                       "detail":  "",
+                       "result":  "PASS",
+                       "name":  "no_uncommitted_changes"
+                   },
+                   {
+                       "detail":  "frontend\\src\\pages\\HomePage.tsx",
+                       "result":  "PASS",
+                       "name":  "file_exists"
+                   },
+                   {
+                       "detail":  "frontend\\src\\pages\\ProjectNewPage.tsx",
+                       "result":  "PASS",
+                       "name":  "file_exists"
+                   },
+                   {
+                       "detail":  "frontend\\src\\pages\\GlobalRulesPage.tsx",
+                       "result":  "PASS",
+                       "name":  "file_exists"
+                   },
+                   {
+                       "detail":  "test(phase4.2) found at index 1",
+                       "result":  "PASS",
+                       "name":  "tdd_test_commit"
+                   },
+                   {
+                       "detail":  "test commit (idx=1) before feat commit (idx=2)",
+                       "result":  "PASS",
+                       "name":  "tdd_order"
+                   },
+                   {
+                       "detail":  "tests passed at test commit (TDD violation: tests must fail at RED)",
+                       "result":  "FAIL",
+                       "name":  "tdd_strict_red"
+                   },
+                   {
+                       "detail":  "collected=122, passed=122",
+                       "result":  "PASS",
+                       "name":  "pytest"
+                   },
+                   {
+                       "detail":  "passed=13",
+                       "result":  "PASS",
+                       "name":  "vitest"
+                   }
+               ]
+}
