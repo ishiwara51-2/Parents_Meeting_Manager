@@ -1,0 +1,72 @@
+{
+    "vitest_collected":  50,
+    "errors_count":  0,
+    "phase_id":  "6.2",
+    "approval_required":  false,
+    "git_head_at_check":  "435215b41fd73812bb0d8af4bddad693430996cd",
+    "overall_result":  "PASS",
+    "vitest_passed":  50,
+    "pytest_passed":  133,
+    "checked_at":  "2026-06-29T20:01:50+09:00",
+    "pytest_collected":  133,
+    "detail_logs":  {
+
+                    },
+    "checks":  [
+                   {
+                       "detail":  "No changes in audit-protected paths",
+                       "result":  "PASS",
+                       "name":  "audit_trail_integrity"
+                   },
+                   {
+                       "detail":  "Check-PhaseDone.ps1 has no uncommitted changes",
+                       "result":  "PASS",
+                       "name":  "check_script_unmodified"
+                   },
+                   {
+                       "detail":  "docs\\handoff_phase6_2.md",
+                       "result":  "PASS",
+                       "name":  "handoff_file_exists"
+                   },
+                   {
+                       "detail":  "phase6.2-done",
+                       "result":  "PASS",
+                       "name":  "git_tag_exists"
+                   },
+                   {
+                       "detail":  "tag matches HEAD",
+                       "result":  "PASS",
+                       "name":  "tag_at_head"
+                   },
+                   {
+                       "detail":  "",
+                       "result":  "PASS",
+                       "name":  "no_uncommitted_changes"
+                   },
+                   {
+                       "detail":  "README.md",
+                       "result":  "PASS",
+                       "name":  "file_exists"
+                   },
+                   {
+                       "detail":  "docs\\limitations.md",
+                       "result":  "PASS",
+                       "name":  "file_exists"
+                   },
+                   {
+                       "detail":  "v0.1.0-prototype",
+                       "result":  "PASS",
+                       "name":  "release_tag_exists"
+                   },
+                   {
+                       "detail":  "collected=133, passed=133",
+                       "result":  "PASS",
+                       "name":  "pytest"
+                   },
+                   {
+                       "detail":  "passed=50",
+                       "result":  "PASS",
+                       "name":  "vitest"
+                   }
+               ]
+}
