@@ -6,6 +6,7 @@ requirements.md §6 / §7 / §8.4 に従い、以下を担う。
 - ヘルスチェック ``GET /api/health`` の提供（``{"status": "ok"}``）
 - OAuth 認証ルータ（Phase 1.3）の登録
 - セッションミドルウェア（CSRF 対策の state 保存先、Phase 1.3）
+- ビルド済みフロントエンドの静的ファイル配信（Phase 4.1）
 
 ルータの追加は後続フェーズで `app/api/` 配下に実装する。
 """
@@ -15,9 +16,12 @@ from __future__ import annotations
 import os
 import secrets
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import AsyncIterator
 
 from fastapi import FastAPI
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 from starlette.middleware.sessions import SessionMiddleware
 
 from app.api.auth import router as auth_router
@@ -91,6 +95,34 @@ def create_app() -> FastAPI:
     application.include_router(rules_router)
     application.include_router(schedule_router)
     application.include_router(drafts_router)
+
+    # ===== フロントエンド静的ファイル配信（Phase 4.1）=====
+    # requirements.md §2.2 の本番モード起動（start.ps1）で使用。
+    # frontend/dist が存在する場合のみ配信を有効化する。
+    # Vite のビルド出力先が frontend/dist であることを前提とする。
+    _frontend_dist = (
+        Path(__file__).resolve().parent.parent.parent.parent
+        / "frontend"
+        / "dist"
+    )
+    if _frontend_dist.is_dir():
+        # /assets などの静的リソースを配信
+        application.mount(
+            "/assets",
+            StaticFiles(directory=str(_frontend_dist / "assets")),
+            name="assets",
+        )
+
+        # SPA フォールバック: /api/* 以外のすべてのリクエストに index.html を返す
+        @application.get("/{full_path:path}", include_in_schema=False)
+        async def serve_spa(full_path: str) -> FileResponse:  # noqa: ARG001
+            """SPA（Single Page Application）のフォールバック。
+
+            React Router がクライアントサイドルーティングを担うため、
+            `/api/` に一致しないパスはすべて ``index.html`` を返す。
+            """
+            index_html = _frontend_dist / "index.html"
+            return FileResponse(str(index_html))
 
     return application
 
