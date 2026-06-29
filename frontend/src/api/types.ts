@@ -105,8 +105,9 @@ export interface Response {
 }
 
 export interface ResponsesStatus {
+  project_id: string
   received: number[]
-  not_received: number[]
+  pending: number[]
 }
 
 // ===== スケジューリング =====
