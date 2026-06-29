@@ -9,6 +9,14 @@ export default defineConfig({
     react(),
     tailwindcss(),
   ],
+  server: {
+    proxy: {
+      '/api': {
+        target: 'http://localhost:8000',
+        changeOrigin: true,
+      },
+    },
+  },
   test: {
     // jsdom 環境でブラウザ API をエミュレート
     environment: 'jsdom',

@@ -23,6 +23,28 @@
 
 `%APPDATA%` は通常 `C:\Users\<ユーザー名>\AppData\Roaming` を指します。
 
+### GCP の OAuth 同意画面設定（重要）
+
+GCP コンソール（https://console.cloud.google.com/）の **「APIとサービス」→「OAuth 同意画面」** で以下を確認してください。
+
+| 項目 | 推奨値 | 備考 |
+|---|---|---|
+| ユーザータイプ | **外部** | 個人 Gmail を使うため |
+| 公開ステータス | **テスト** | 本番未確認のままだと一般ユーザーは利用不可 |
+| テストユーザー | **認証に使う Gmail アドレスを追加** | 未登録だと「アクセスをブロック: ...は Google の審査プロセスを完了していません」と表示される |
+| 必須スコープ | `forms.body` / `forms.responses.readonly` / `drive.file` | コードと一致させる |
+
+### GCP の OAuth クライアント（リダイレクト URI）
+
+「APIとサービス」→「認証情報」→ 該当の OAuth 2.0 クライアント ID で、
+**承認済みのリダイレクト URI** に以下を登録：
+
+```
+http://localhost:8000/api/auth/google/callback
+```
+
+未登録だと Google 側で `redirect_uri_mismatch` エラーになります。
+
 ---
 
 ## 起動手順

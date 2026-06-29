@@ -118,12 +118,12 @@ class FakeFormsApi:
                         "questions": [
                             {
                                 "questionId": "QID_ROW_0",
-                                "required": True,
+                                "required": False,
                                 "rowQuestion": {"title": "2026-07-15"},
                             },
                             {
                                 "questionId": "QID_ROW_1",
-                                "required": True,
+                                "required": False,
                                 "rowQuestion": {"title": "2026-07-16"},
                             },
                         ],
@@ -279,12 +279,13 @@ def test_matrix_rows_and_columns_match_project_definition(
     column_values = [c["value"] for c in qgi["grid"]["columns"]["options"]]
     assert column_values == ["16:00-16:20", "16:20-16:40"]
 
-    # rows: 候補日が ISO 文字列で順序通り、各 row が required=True
+    # rows: 候補日が ISO 文字列で順序通り、各 row は required=False
+    # （0 枠の日を許容するため。すべての日が空でも回答送信可能）
     questions = qgi["questions"]
     row_titles = [q["rowQuestion"]["title"] for q in questions]
     assert row_titles == ["2026-07-15", "2026-07-16"]
     for q in questions:
-        assert q["required"] is True, "全行に required=True を付与すべき"
+        assert q["required"] is False, "0 枠の日を許容するため各行は required=False"
 
 
 # ---------------------------------------------------------------------------

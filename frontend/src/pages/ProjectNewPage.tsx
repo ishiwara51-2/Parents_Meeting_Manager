@@ -14,6 +14,46 @@ import { useMutation } from '@tanstack/react-query'
 import type { FormEvent } from 'react'
 import { projectsApi } from '../api'
 
+/** "HH:MM" → 0時からの分数。形式不正なら null */
+function parseHHMM(s: string): number | null {
+  const m = /^(\d{1,2}):(\d{2})$/.exec(s)
+  if (!m) return null
+  const h = Number(m[1])
+  const min = Number(m[2])
+  if (h < 0 || h > 23 || min < 0 || min > 59) return null
+  return h * 60 + min
+}
+
+/** 分数 → "HH:MM" */
+function formatHHMM(totalMin: number): string {
+  const h = Math.floor(totalMin / 60)
+  const m = totalMin % 60
+  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`
+}
+
+/**
+ * 開始〜終了の範囲を slotMinutes 刻みでスライスし、
+ * バックエンドが期待する個別 TimeSlot 配列を生成する。
+ *
+ * - end <= start の場合は空配列
+ * - (end - start) が slotMinutes で割り切れない場合、末尾の半端は切り捨て
+ *   （例: 16:00-17:10, slot=20 → 16:00-16:20, 16:20-16:40, 16:40-17:00）
+ */
+function sliceTimeRange(
+  start: string,
+  end: string,
+  slotMinutes: number,
+): { start: string; end: string }[] {
+  const s = parseHHMM(start)
+  const e = parseHHMM(end)
+  if (s === null || e === null || slotMinutes <= 0 || e <= s) return []
+  const slots: { start: string; end: string }[] = []
+  for (let t = s; t + slotMinutes <= e; t += slotMinutes) {
+    slots.push({ start: formatHHMM(t), end: formatHHMM(t + slotMinutes) })
+  }
+  return slots
+}
+
 export default function ProjectNewPage() {
   const navigate = useNavigate()
 
@@ -62,11 +102,19 @@ export default function ProjectNewPage() {
       .map(Number)
       .filter((n) => !isNaN(n) && n > 0)
 
+    const timeSlots = sliceTimeRange(startTime, endTime, slotMinutes)
+    if (timeSlots.length === 0) {
+      setValidationError(
+        `時間枠が生成できません。終了時刻が開始時刻より後で、(終了 - 開始) が ${slotMinutes} 分以上必要です`,
+      )
+      return
+    }
+
     mutation.mutate({
       display_name: displayName.trim(),
       slot_minutes: slotMinutes,
       candidate_dates: dates,
-      candidate_time_slots: [{ start: startTime, end: endTime }],
+      candidate_time_slots: timeSlots,
       student_numbers: studentNumbers,
     })
   }
@@ -132,9 +180,11 @@ export default function ProjectNewPage() {
           />
         </div>
 
-        {/* 候補時間枠（基本1枠）*/}
+        {/* 候補時間枠（開始〜終了の範囲を 1コマ分ずつスライス）*/}
         <div style={{ marginBottom: '1rem' }}>
-          <span>候補時間枠（開始 / 終了）</span>
+          <span>
+            候補時間枠（開始〜終了の範囲を「1コマの長さ」ごとに分割します）
+          </span>
           <br />
           <label htmlFor="start-time">開始</label>
           <input
@@ -152,6 +202,24 @@ export default function ProjectNewPage() {
             onChange={(e) => setEndTime(e.target.value)}
             style={{ marginLeft: '0.25rem' }}
           />
+          {(() => {
+            const preview = sliceTimeRange(startTime, endTime, slotMinutes)
+            if (preview.length === 0) {
+              return (
+                <p style={{ fontSize: '0.875rem', color: '#a00', marginTop: '0.25rem' }}>
+                  ※ 現在の入力では時間枠が生成されません
+                </p>
+              )
+            }
+            const labels = preview.map((s) => `${s.start}-${s.end}`)
+            const shown = labels.slice(0, 3).join(', ')
+            const more = labels.length > 3 ? ` ... 他 ${labels.length - 3} 枠` : ''
+            return (
+              <p style={{ fontSize: '0.875rem', color: '#555', marginTop: '0.25rem' }}>
+                生成される枠（{labels.length} コマ）: {shown}{more}
+              </p>
+            )
+          })()}
         </div>
 
         {/* 出席番号 */}

@@ -55,6 +55,12 @@ TOKEN_FILENAME = "oauth_token.json"
 # requirements.md §8.5 に準拠したローカル開発向けの暫定設定。
 os.environ.setdefault("OAUTHLIB_INSECURE_TRANSPORT", "1")
 
+# Google は ``include_granted_scopes=true`` 利用時や同意済みアカウントに対し、
+# 要求した SCOPES に加えて ``openid`` / ``email`` / ``profile`` 等を勝手に返す
+# ことがある。oauthlib は既定でこのスコープ差分を例外化するため、
+# プロトタイプではトークンスコープを緩める。
+os.environ.setdefault("OAUTHLIB_RELAX_TOKEN_SCOPE", "1")
+
 
 # ---------------------------------------------------------------------------
 # パス解決
@@ -127,15 +133,21 @@ def _save_credentials(creds: Credentials) -> Path:
 # 公開 API
 # ---------------------------------------------------------------------------
 
-def build_authorization_url() -> tuple[str, str]:
-    """認可URLとセッションに保存すべき state を返す。
+def build_authorization_url() -> tuple[str, str, str | None]:
+    """認可URLとセッションに保存すべき state / code_verifier を返す。
 
     CSRF 対策のため state は ``secrets.token_urlsafe`` で生成し、本サービス
     側で明示的に渡す（``Flow.authorization_url`` の自動生成値には依存しない）。
 
+    ``google-auth-oauthlib`` の Flow は PKCE の ``code_verifier`` を自動生成し、
+    対応する ``code_challenge`` を認可URLに含める。トークン交換時に Google が
+    verifier を要求するため、生成された verifier も呼び出し側で保管する必要がある。
+
     Returns:
-        ``(url, state)``。呼び出し側は ``state`` をサーバ側セッションに保存し、
-        コールバック時に検証する責務を負う。
+        ``(url, state, code_verifier)``。呼び出し側は ``state`` と
+        ``code_verifier`` をサーバ側セッションに保存し、コールバック時に
+        ``exchange_code_for_token`` へ渡す責務を負う。
+        PKCE が無効な場合 ``code_verifier`` は ``None``。
     """
     flow = _build_flow()
     state = secrets.token_urlsafe(STATE_BYTES)
@@ -145,20 +157,34 @@ def build_authorization_url() -> tuple[str, str]:
         prompt="consent",
         state=state,
     )
-    return url, state
+    # Flow が自動生成した verifier を取り出す（属性が無い場合は None）
+    code_verifier = getattr(flow, "code_verifier", None)
+    return url, state, code_verifier
 
 
-def exchange_code_for_token(*, code: str, state: str) -> Credentials:
+def exchange_code_for_token(
+    *,
+    code: str,
+    state: str,
+    code_verifier: Optional[str] = None,
+) -> Credentials:
     """認可コードをトークンに交換し ``oauth_token.json`` に保存する。
 
     Args:
         code: Google から付与された認可コード（クエリパラメータ ``code``）。
         state: 認可開始時に生成した state。``Flow`` の再構築に使用する。
+        code_verifier: 認可開始時に生成した PKCE verifier。``None`` 可
+            （PKCE 無効時）。Google が要求するため、認可URLに ``code_challenge``
+            が含まれていた場合は必須。
 
     Returns:
         取得した ``Credentials``。
     """
     flow = _build_flow(state=state)
+    if code_verifier is not None:
+        # 認可開始時の verifier を復元してから fetch_token を呼ぶ。
+        # Flow は自分の ``code_verifier`` 属性を見て送信する。
+        flow.code_verifier = code_verifier
     flow.fetch_token(code=code)
     creds = flow.credentials
     _save_credentials(creds)

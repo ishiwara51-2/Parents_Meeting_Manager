@@ -11,7 +11,7 @@
  *   - ルールカスタマイズ / 面談日程案作成 ボタン
  */
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { projectsApi, formApi, responsesApi } from '../api'
@@ -19,6 +19,12 @@ import type { FormInfo } from '../api'
 
 /** 自動ポーリング間隔（ミリ秒）。requirements.md §4.4 の既定 60 秒 */
 const POLLING_INTERVAL_MS = 60_000
+
+/**
+ * sessionStorage キー：OAuth 認証から戻った後、Form 作成を自動再開するための
+ * 「意図」フラグ。プロジェクト ID 単位で分離する。
+ */
+const formIntentKey = (projectId: string) => `pendingFormCreate:${projectId}`
 
 export default function ProjectPage() {
   const { projectId } = useParams<{ projectId: string }>()
@@ -28,6 +34,8 @@ export default function ProjectPage() {
   const [formError, setFormError] = useState('')
   const [syncError, setSyncError] = useState('')
   const [copySuccess, setCopySuccess] = useState(false)
+  // OAuth 戻り後の自動再実行を「このマウントで1回だけ」に制限するガード
+  const autoFormTriggeredRef = useRef(false)
 
   // ----- データ取得 -----
 
@@ -63,10 +71,32 @@ export default function ProjectPage() {
   const createFormMutation = useMutation({
     mutationFn: () => formApi.create(projectId!),
     onSuccess: () => {
+      if (projectId) sessionStorage.removeItem(formIntentKey(projectId))
       queryClient.invalidateQueries({ queryKey: ['form', projectId] })
       setFormError('')
     },
-    onError: (err: Error) => {
+    onError: (err: Error & { status?: number }) => {
+      // 401: OAuth 未認証 → 認証フローへ。完了後にこのページに戻し、
+      // sessionStorage の「意図」フラグを useEffect が検知して自動再実行する。
+      // dev では callback (port 8000) から frontend (port 5173) へ戻す必要があるため
+      // 絶対URL（origin 付き）で next を渡す。
+      if (err.status === 401) {
+        // 自動再試行後の 401 は無限ループ防止のため、リダイレクトせず通知する
+        if (autoFormTriggeredRef.current) {
+          if (projectId) sessionStorage.removeItem(formIntentKey(projectId))
+          setFormError(
+            'Google 認証が完了しませんでした。再度「候補日程聴取用Google Form作成」ボタンを押してください。',
+          )
+          return
+        }
+        if (projectId) sessionStorage.setItem(formIntentKey(projectId), '1')
+        const next = encodeURIComponent(
+          `${window.location.origin}/projects/${projectId}`,
+        )
+        window.location.href = `/api/auth/google?next=${next}`
+        return
+      }
+      if (projectId) sessionStorage.removeItem(formIntentKey(projectId))
       setFormError(err.message ?? 'Form の作成に失敗しました')
     },
   })
@@ -118,6 +148,26 @@ export default function ProjectPage() {
   // ----- Form 情報（作成直後は mutation data を優先） -----
   const currentFormInfo: FormInfo | undefined =
     formInfo ?? createFormMutation.data
+
+  // ----- OAuth 戻り後の自動再実行 -----
+  // ユーザーが Form 作成ボタンを押した結果 401 で OAuth に飛ばされた場合、
+  // 戻ってきたタイミング（このマウント）で意図フラグを検知して mutation を自動発火する。
+  // formLoading 中・既に Form が存在する場合・既に自動発火済みの場合は何もしない。
+  useEffect(() => {
+    if (!projectId) return
+    if (autoFormTriggeredRef.current) return
+    if (formLoading) return
+    if (currentFormInfo) {
+      sessionStorage.removeItem(formIntentKey(projectId))
+      return
+    }
+    if (sessionStorage.getItem(formIntentKey(projectId)) !== '1') return
+    autoFormTriggeredRef.current = true
+    createFormMutation.mutate()
+    // createFormMutation はレンダリングごとに新しい参照になるため依存に含めない
+    // （自動発火はマウントあたり一度きりで autoFormTriggeredRef がガードする）
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [projectId, formLoading, currentFormInfo])
 
   // ----- ローディング -----
 
@@ -185,6 +235,11 @@ export default function ProjectPage() {
           </div>
         ) : (
           <div>
+            {autoFormTriggeredRef.current && createFormMutation.isPending && (
+              <p style={{ color: '#0a5', marginBottom: '0.5rem' }}>
+                Google 認証が完了しました。Form を作成しています...
+              </p>
+            )}
             <button
               type="button"
               onClick={() => createFormMutation.mutate()}

@@ -101,14 +101,15 @@ def _build_matrix_item(
         - ``QuestionGroupItem`` + ``Grid``
         - ``columns.type=CHECKBOX``（複数選択可）
         - 各行 = 候補日（``rowQuestion.title`` に ISO 文字列を入れる）
-        - 各 row に ``required=True``（行単位の必須化が API 仕様）
+        - 各 row に ``required=False``（0 枠の日を許容するため。
+          全日不可は ``_parse_availability`` が空リストを返すことで自然に扱える）
         - ``shuffleQuestions=False``（日付順を維持）
     """
     return {
         "createItem": {
             "location": {"index": 1},
             "item": {
-                "title": "参加可能な日時にチェックを入れてください（複数選択可）",
+                "title": "参加可能な日時にチェックを入れてください（複数選択可、参加不可の日は空欄で可）",
                 "questionGroupItem": {
                     "grid": {
                         "columns": {
@@ -122,7 +123,7 @@ def _build_matrix_item(
                     },
                     "questions": [
                         {
-                            "required": True,
+                            "required": False,
                             "rowQuestion": {"title": date_str},
                         }
                         for date_str in candidate_dates
