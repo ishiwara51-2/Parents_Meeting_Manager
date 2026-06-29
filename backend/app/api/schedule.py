@@ -82,6 +82,16 @@ class ScheduleRequest(BaseModel):
             f"{DEFAULT_API_SOLVER_TIME_LIMIT_SECONDS} 秒。"
         ),
     )
+    #: 名簿外の出席番号からの回答などを除外したい場合に渡す。
+    #: ここに含まれる student_number は responses からフィルタされ、
+    #: assignments / unassigned_students のいずれにも現れない。
+    excluded_students: Optional[list[int]] = Field(
+        default=None,
+        description=(
+            "スケジューリング対象から除外する出席番号の一覧。"
+            "省略時はフィルタなし（受領済み全件を対象）。"
+        ),
+    )
 
 
 @router.post(
@@ -145,6 +155,23 @@ def post_schedule(
                 "fetch responses first via POST /api/projects/{id}/responses/sync"
             ),
         )
+
+    # 名簿外の出席番号などをフロントの確認結果で除外する
+    excluded = (
+        set(body.excluded_students)
+        if body is not None and body.excluded_students is not None
+        else set()
+    )
+    if excluded:
+        responses = [r for r in responses if r.student_number not in excluded]
+        if not responses:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=(
+                    "all received responses are excluded; "
+                    "no students left to schedule"
+                ),
+            )
 
     # 4. ルール取得（プロジェクト作成時に必ず生成されている前提だが、防御）
     try:

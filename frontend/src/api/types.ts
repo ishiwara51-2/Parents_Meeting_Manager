@@ -127,6 +127,8 @@ export interface SchedulingResult {
 
 export interface ScheduleRequest {
   solver_time_limit_seconds?: number
+  /** スケジューリング対象から除外する出席番号（名簿外の回答などを弾く用途） */
+  excluded_students?: number[]
 }
 
 // ===== ドラフト =====

@@ -17,6 +17,7 @@ import { MemoryRouter, Routes, Route } from 'react-router-dom'
 import SchedulePage, {
   applyDrop,
   isInAvailability,
+  validateAssignments,
   WarningDialog,
 } from '../src/pages/SchedulePage'
 import * as api from '../src/api'
@@ -34,8 +35,13 @@ vi.mock('../src/api', () => ({
   },
   draftsApi: {
     save: vi.fn(),
+    getLatest: vi.fn(),
+    unlock: vi.fn(),
   },
 }))
+
+/** 「既存ドラフトなし」を表すためのエラー（status=404 を持つ） */
+const NO_DRAFT_ERROR = Object.assign(new Error('not found'), { status: 404 })
 
 const PROJECT_ID = 'test-project-id'
 
@@ -133,6 +139,8 @@ describe('SchedulePage', () => {
     // Phase 4.4b で追加された API呼び出しのデフォルトモック
     vi.mocked(api.projectsApi.get).mockResolvedValue(MOCK_PROJECT)
     vi.mocked(api.responsesApi.list).mockResolvedValue(MOCK_RESPONSES)
+    // 既定では既存ドラフトなし（404）
+    vi.mocked(api.draftsApi.getLatest).mockRejectedValue(NO_DRAFT_ERROR)
   })
 
   it('マウント時に scheduleApi.run が正しい projectId で呼ばれる', async () => {
@@ -147,8 +155,9 @@ describe('SchedulePage', () => {
     vi.mocked(api.scheduleApi.run).mockResolvedValue(MOCK_RESULT_FEASIBLE)
     renderSchedulePage()
     await waitFor(() => {
-      expect(screen.getByText('2026-07-15')).toBeInTheDocument()
-      expect(screen.getByText('2026-07-16')).toBeInTheDocument()
+      // 日程案マトリクスと候補日時集計マトリクスの両方に出現するため getAllByText で確認
+      expect(screen.getAllByText('2026-07-15').length).toBeGreaterThan(0)
+      expect(screen.getAllByText('2026-07-16').length).toBeGreaterThan(0)
     })
   })
 
@@ -156,10 +165,9 @@ describe('SchedulePage', () => {
     vi.mocked(api.scheduleApi.run).mockResolvedValue(MOCK_RESULT_FEASIBLE)
     renderSchedulePage()
     await waitFor(() => {
-      // "16:00 - 16:20" は "16:00" を含む唯一の行ラベル
-      expect(screen.getByText(/16:00/)).toBeInTheDocument()
-      // "16:20 - 16:40" は "16:40" を含む唯一の行ラベル（"16:20" は2行にまたがるため16:40で一意を確認）
-      expect(screen.getByText(/16:40/)).toBeInTheDocument()
+      // 2 つのマトリクスに同じ時間枠ラベルが出現
+      expect(screen.getAllByText(/16:00/).length).toBeGreaterThan(0)
+      expect(screen.getAllByText(/16:40/).length).toBeGreaterThan(0)
     })
   })
 
@@ -189,10 +197,10 @@ describe('SchedulePage', () => {
     vi.mocked(api.scheduleApi.run).mockResolvedValue(MOCK_RESULT_INFEASIBLE)
     renderSchedulePage()
     await waitFor(() => {
-      // 「未配置」という文言が表示される
-      expect(screen.getByText(/未配置/)).toBeInTheDocument()
-      // 未配置生徒の出席番号が表示される（"2, 3" or similar）
-      expect(screen.getByText(/2.*3|3.*2/)).toBeInTheDocument()
+      // 「未配置」という文言は alert 領域に 1 件だけ存在する
+      const alert = screen.getByRole('alert')
+      expect(alert).toHaveTextContent(/未配置/)
+      expect(alert).toHaveTextContent(/2.*3|3.*2/)
     })
   })
 })
@@ -205,6 +213,8 @@ describe('Phase 4.4b: DnD と警告', () => {
     vi.mocked(api.scheduleApi.run).mockResolvedValue(MOCK_RESULT_FEASIBLE)
     vi.mocked(api.projectsApi.get).mockResolvedValue(MOCK_PROJECT)
     vi.mocked(api.responsesApi.list).mockResolvedValue(MOCK_RESPONSES)
+    // 既定では既存ドラフトなし（404）
+    vi.mocked(api.draftsApi.getLatest).mockRejectedValue(NO_DRAFT_ERROR)
   })
 
   it('ドラッグ可能な生徒カードが data-testid で識別できる', async () => {
@@ -279,6 +289,8 @@ describe('Phase 4.4c: 保存ボタン', () => {
     vi.mocked(api.scheduleApi.run).mockResolvedValue(MOCK_RESULT_FEASIBLE)
     vi.mocked(api.projectsApi.get).mockResolvedValue(MOCK_PROJECT)
     vi.mocked(api.responsesApi.list).mockResolvedValue(MOCK_RESPONSES)
+    // 既定では既存ドラフトなし（404）
+    vi.mocked(api.draftsApi.getLatest).mockRejectedValue(NO_DRAFT_ERROR)
   })
 
   it('「保存」ボタンが表示される', async () => {
@@ -327,5 +339,401 @@ describe('Phase 4.4c: 保存ボタン', () => {
     await waitFor(() => {
       expect(screen.getByText('保存完了ページ')).toBeInTheDocument()
     })
+  })
+})
+
+// ===== 既存ドラフトとのマージ動作 =====
+
+const EXISTING_DRAFT = {
+  project_id: PROJECT_ID,
+  saved_at: '2026-07-15T20:00:00+09:00',
+  locked: true,
+  assignments: [
+    { student_number: 1, date: '2026-07-15', start: '16:00:00', end: '16:20:00' },
+    { student_number: 2, date: '2026-07-15', start: '16:20:00', end: '16:40:00' },
+    { student_number: 3, date: '2026-07-16', start: '16:00:00', end: '16:20:00' },
+  ],
+  unassigned_students: [],
+  violated_constraints: [],
+}
+
+describe('既存ドラフトとのマージ', () => {
+  beforeEach(() => {
+    vi.resetAllMocks()
+    vi.mocked(api.projectsApi.get).mockResolvedValue(MOCK_PROJECT)
+    vi.mocked(api.responsesApi.list).mockResolvedValue(MOCK_RESPONSES)
+  })
+
+  it('既存ドラフトに全員いて新規応答がない場合は scheduleApi.run を呼ばずに既存を表示', async () => {
+    vi.mocked(api.draftsApi.getLatest).mockResolvedValue(EXISTING_DRAFT)
+    renderSchedulePage()
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: '保存' })).toBeInTheDocument()
+    })
+    // 新規スケジュール対象がいないので schedule API は呼ばれない
+    expect(vi.mocked(api.scheduleApi.run)).not.toHaveBeenCalled()
+    // 既存ドラフトの生徒がマトリクスに表示される
+    expect(screen.getByTestId('draggable-student-1')).toBeInTheDocument()
+    expect(screen.getByTestId('draggable-student-2')).toBeInTheDocument()
+    expect(screen.getByTestId('draggable-student-3')).toBeInTheDocument()
+  })
+
+  it('保存時に 409 が返ったらアンロックして再保存する', async () => {
+    vi.mocked(api.draftsApi.getLatest).mockResolvedValue(EXISTING_DRAFT)
+    const lockedError = Object.assign(new Error('locked'), { status: 409 })
+    vi.mocked(api.draftsApi.save)
+      .mockRejectedValueOnce(lockedError)
+      .mockResolvedValueOnce({
+        ...EXISTING_DRAFT,
+        locked: true,
+      })
+    vi.mocked(api.draftsApi.unlock).mockResolvedValue({
+      ...EXISTING_DRAFT,
+      locked: false,
+    })
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter initialEntries={[`/projects/${PROJECT_ID}/schedule`]}>
+          <Routes>
+            <Route path="/projects/:projectId/schedule" element={<SchedulePage />} />
+            <Route path="/projects/:projectId/saved" element={<div>保存完了ページ</div>} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    )
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: '保存' })).toBeInTheDocument()
+    })
+    fireEvent.click(screen.getByRole('button', { name: '保存' }))
+    await waitFor(() => {
+      expect(screen.getByText('保存完了ページ')).toBeInTheDocument()
+    })
+    expect(vi.mocked(api.draftsApi.unlock)).toHaveBeenCalledWith(PROJECT_ID)
+    expect(vi.mocked(api.draftsApi.save)).toHaveBeenCalledTimes(2)
+  })
+
+  it('既存ドラフトの生徒の最新回答が空になっていたら警告を表示する', async () => {
+    // 生徒 1, 2, 3 が既存ドラフトに配置済み
+    // 生徒 1 の最新回答が空（候補日時ゼロ）になっている
+    const responsesWithEmpty1 = [
+      // 生徒 1 の最新応答が空
+      {
+        project_id: PROJECT_ID,
+        student_number: 1,
+        submitted_at: '2026-07-02T00:00:00+09:00',
+        google_form_response_id: 'r1-new',
+        availability: [],
+      },
+      // 生徒 2, 3 は前回通り
+      MOCK_RESPONSES[1],
+      MOCK_RESPONSES[2],
+    ]
+    vi.mocked(api.responsesApi.list).mockResolvedValue(responsesWithEmpty1)
+    vi.mocked(api.draftsApi.getLatest).mockResolvedValue(EXISTING_DRAFT)
+
+    renderSchedulePage()
+    await waitFor(() => {
+      expect(screen.getByTestId('availability-issue-alert')).toBeInTheDocument()
+    })
+    const alert = screen.getByTestId('availability-issue-alert')
+    expect(alert).toHaveTextContent(/候補日時がありません/)
+    expect(alert).toHaveTextContent(/\b1\b/)
+  })
+
+  it('警告がある場合、「警告対象を再配置する」ボタンが表示される', async () => {
+    const responsesWithEmpty1 = [
+      {
+        project_id: PROJECT_ID,
+        student_number: 1,
+        submitted_at: '2026-07-02T00:00:00+09:00',
+        google_form_response_id: 'r1-new',
+        availability: [],
+      },
+      MOCK_RESPONSES[1],
+      MOCK_RESPONSES[2],
+    ]
+    vi.mocked(api.responsesApi.list).mockResolvedValue(responsesWithEmpty1)
+    vi.mocked(api.draftsApi.getLatest).mockResolvedValue(EXISTING_DRAFT)
+
+    renderSchedulePage()
+    await waitFor(() => {
+      expect(
+        screen.getByTestId('reorganize-warning-students-button'),
+      ).toBeInTheDocument()
+    })
+  })
+
+  it('警告がない場合、「警告対象を再配置する」ボタンは表示されない', async () => {
+    vi.mocked(api.draftsApi.getLatest).mockResolvedValue(EXISTING_DRAFT)
+    renderSchedulePage()
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: '保存' })).toBeInTheDocument()
+    })
+    expect(
+      screen.queryByTestId('reorganize-warning-students-button'),
+    ).not.toBeInTheDocument()
+  })
+
+  it('「警告対象を再配置する」ボタン押下で警告対象のみを対象にスケジュールが再実行される', async () => {
+    // 生徒 1 の最新回答が空 → 警告対象
+    const responsesWithEmpty1 = [
+      {
+        project_id: PROJECT_ID,
+        student_number: 1,
+        submitted_at: '2026-07-02T00:00:00+09:00',
+        google_form_response_id: 'r1-new',
+        availability: [],
+      },
+      MOCK_RESPONSES[1],
+      MOCK_RESPONSES[2],
+    ]
+    vi.mocked(api.responsesApi.list).mockResolvedValue(responsesWithEmpty1)
+    vi.mocked(api.draftsApi.getLatest).mockResolvedValue(EXISTING_DRAFT)
+    vi.mocked(api.scheduleApi.run).mockResolvedValue({
+      assignments: [],
+      unassigned_students: [1],
+      violated_constraints: [],
+    })
+
+    renderSchedulePage()
+    await waitFor(() => {
+      expect(
+        screen.getByTestId('reorganize-warning-students-button'),
+      ).toBeInTheDocument()
+    })
+    fireEvent.click(
+      screen.getByTestId('reorganize-warning-students-button'),
+    )
+
+    await waitFor(() => {
+      expect(vi.mocked(api.scheduleApi.run)).toHaveBeenCalled()
+    })
+    // 警告対象（生徒 1）以外（生徒 2, 3）が excluded_students に含まれる
+    const [, req] = vi.mocked(api.scheduleApi.run).mock.calls[0]
+    expect(req).toEqual({
+      excluded_students: expect.arrayContaining([2, 3]),
+    })
+    expect((req as { excluded_students: number[] }).excluded_students).not.toContain(
+      1,
+    )
+  })
+
+  it('既存ドラフト由来の配置と新規配置を視覚的に区別する（data-testid）', async () => {
+    // 既存ドラフト: 生徒 1, 2 が配置済み、3 は応答だけあり（新規）
+    const draftOnly12 = {
+      ...EXISTING_DRAFT,
+      assignments: [
+        { student_number: 1, date: '2026-07-15', start: '16:00:00', end: '16:20:00' },
+        { student_number: 2, date: '2026-07-15', start: '16:20:00', end: '16:40:00' },
+      ],
+    }
+    vi.mocked(api.draftsApi.getLatest).mockResolvedValue(draftOnly12)
+    vi.mocked(api.scheduleApi.run).mockResolvedValue({
+      assignments: [
+        { student_number: 3, date: '2026-07-16', start: '16:00:00', end: '16:20:00' },
+      ],
+      unassigned_students: [],
+      violated_constraints: [],
+    })
+
+    renderSchedulePage()
+    await waitFor(() => {
+      expect(screen.getByTestId('cell-original-1')).toBeInTheDocument()
+    })
+    expect(screen.getByTestId('cell-original-2')).toBeInTheDocument()
+    expect(screen.getByTestId('cell-new-3')).toBeInTheDocument()
+    expect(screen.getByTestId('schedule-matrix-legend')).toBeInTheDocument()
+  })
+
+  it('既存ドラフトが無い場合、視覚区別の凡例は表示されない', async () => {
+    vi.mocked(api.draftsApi.getLatest).mockRejectedValue(NO_DRAFT_ERROR)
+    vi.mocked(api.scheduleApi.run).mockResolvedValue(MOCK_RESULT_FEASIBLE)
+    renderSchedulePage()
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: '保存' })).toBeInTheDocument()
+    })
+    expect(screen.queryByTestId('schedule-matrix-legend')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('cell-original-1')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('cell-new-1')).not.toBeInTheDocument()
+  })
+
+  it('既存ドラフトに含まれる名簿外番号は確認ダイアログから除外される', async () => {
+    // 名簿外 (6) と (7) が応答済み、ドラフトには 6 が含まれている → 確認対象は 7 のみ
+    const project = { ...MOCK_PROJECT, student_numbers: [1, 2, 3] }
+    const responses = [
+      ...MOCK_RESPONSES,
+      {
+        project_id: PROJECT_ID,
+        student_number: 6,
+        submitted_at: '2026-07-01T00:00:00+09:00',
+        google_form_response_id: 'r6',
+        availability: [],
+      },
+      {
+        project_id: PROJECT_ID,
+        student_number: 7,
+        submitted_at: '2026-07-01T00:00:00+09:00',
+        google_form_response_id: 'r7',
+        availability: [],
+      },
+    ]
+    const draftWith6 = {
+      ...EXISTING_DRAFT,
+      unassigned_students: [6],
+    }
+    vi.mocked(api.projectsApi.get).mockResolvedValue(project)
+    vi.mocked(api.responsesApi.list).mockResolvedValue(responses)
+    vi.mocked(api.draftsApi.getLatest).mockResolvedValue(draftWith6)
+
+    renderSchedulePage()
+    await waitFor(() => {
+      expect(screen.getByTestId('extras-confirm-dialog')).toBeInTheDocument()
+    })
+    const dialog = screen.getByTestId('extras-confirm-dialog')
+    // 6 は既にドラフトに含まれているため表示されない
+    expect(dialog.textContent).not.toMatch(/\b6\b/)
+    // 7 は表示される
+    expect(dialog.textContent).toMatch(/\b7\b/)
+  })
+})
+
+// ===== 手動入力と検証エラー =====
+
+describe('validateAssignments', () => {
+  it('重複している出席番号を検出する', () => {
+    const assignments = [
+      { student_number: 1, date: '2026-07-15', start: '16:00:00', end: '16:20:00' },
+      { student_number: 1, date: '2026-07-15', start: '16:20:00', end: '16:40:00' },
+      { student_number: 2, date: '2026-07-16', start: '16:00:00', end: '16:20:00' },
+    ]
+    const result = validateAssignments(assignments, [1, 2, 3], [])
+    expect(result.duplicates).toEqual([1])
+    expect(result.outOfRoster).toEqual([])
+  })
+
+  it('名簿外（authorizedExtras にも無い）を検出する', () => {
+    const assignments = [
+      { student_number: 1, date: '2026-07-15', start: '16:00:00', end: '16:20:00' },
+      { student_number: 99, date: '2026-07-15', start: '16:20:00', end: '16:40:00' },
+    ]
+    const result = validateAssignments(assignments, [1, 2, 3], [])
+    expect(result.outOfRoster).toEqual([99])
+  })
+
+  it('authorizedExtras に含まれる名簿外番号は警告対象外', () => {
+    const assignments = [
+      { student_number: 6, date: '2026-07-15', start: '16:00:00', end: '16:20:00' },
+    ]
+    const result = validateAssignments(assignments, [1, 2, 3], [6])
+    expect(result.outOfRoster).toEqual([])
+  })
+
+  it('重複と名簿外を同時に検出する', () => {
+    const assignments = [
+      { student_number: 99, date: '2026-07-15', start: '16:00:00', end: '16:20:00' },
+      { student_number: 99, date: '2026-07-15', start: '16:20:00', end: '16:40:00' },
+    ]
+    const result = validateAssignments(assignments, [1, 2, 3], [])
+    expect(result.duplicates).toEqual([99])
+    expect(result.outOfRoster).toEqual([99])
+  })
+})
+
+describe('手動入力 UI', () => {
+  beforeEach(() => {
+    vi.resetAllMocks()
+    vi.mocked(api.scheduleApi.run).mockResolvedValue(MOCK_RESULT_FEASIBLE)
+    vi.mocked(api.projectsApi.get).mockResolvedValue(MOCK_PROJECT)
+    vi.mocked(api.responsesApi.list).mockResolvedValue(MOCK_RESPONSES)
+    vi.mocked(api.draftsApi.getLatest).mockRejectedValue(NO_DRAFT_ERROR)
+  })
+
+  it('各セルに編集ボタンが表示される', async () => {
+    renderSchedulePage()
+    await waitFor(() => {
+      // 配置済みセル: ✎ ボタン
+      expect(
+        screen.getByTestId('cell-edit-button-2026-07-15|16:00'),
+      ).toBeInTheDocument()
+    })
+    // 空きセル: ＋ ボタン
+    expect(
+      screen.getByTestId('cell-edit-button-2026-07-16|16:20'),
+    ).toBeInTheDocument()
+  })
+
+  it('編集ボタン押下で入力フィールドが表示され、Enter で値が反映される', async () => {
+    renderSchedulePage()
+    await waitFor(() => {
+      expect(
+        screen.getByTestId('cell-edit-button-2026-07-16|16:20'),
+      ).toBeInTheDocument()
+    })
+    fireEvent.click(screen.getByTestId('cell-edit-button-2026-07-16|16:20'))
+    const input = (await screen.findByTestId(
+      'cell-input-2026-07-16|16:20',
+    )) as HTMLInputElement
+    fireEvent.change(input, { target: { value: '2' } })
+    fireEvent.keyDown(input, { key: 'Enter' })
+    fireEvent.blur(input)
+    // 配置反映: 生徒 2 が 16:00 と 16:20 の両方に → 重複として検出
+    await waitFor(() => {
+      expect(screen.getByTestId('validation-alert')).toBeInTheDocument()
+    })
+  })
+
+  it('名簿外の番号を入力すると validation-alert に表示される', async () => {
+    renderSchedulePage()
+    await waitFor(() => {
+      expect(
+        screen.getByTestId('cell-edit-button-2026-07-16|16:20'),
+      ).toBeInTheDocument()
+    })
+    fireEvent.click(screen.getByTestId('cell-edit-button-2026-07-16|16:20'))
+    const input = (await screen.findByTestId(
+      'cell-input-2026-07-16|16:20',
+    )) as HTMLInputElement
+    fireEvent.change(input, { target: { value: '99' } })
+    fireEvent.blur(input)
+    await waitFor(() => {
+      const alert = screen.getByTestId('validation-alert')
+      expect(alert).toHaveTextContent(/生徒名簿に登録されていません/)
+      expect(alert).toHaveTextContent(/99/)
+    })
+  })
+
+  it('「含める」で認可された名簿外番号は検証エラーにならない', async () => {
+    // 名簿外 (6) が応答済み → 確認ダイアログ表示 → 「含める」を選択
+    const responses = [
+      ...MOCK_RESPONSES,
+      {
+        project_id: PROJECT_ID,
+        student_number: 6,
+        submitted_at: '2026-07-01T00:00:00+09:00',
+        google_form_response_id: 'r6',
+        availability: [
+          { date: '2026-07-15', start: '16:00', end: '16:20' },
+        ],
+      },
+    ]
+    vi.mocked(api.responsesApi.list).mockResolvedValue(responses)
+    vi.mocked(api.scheduleApi.run).mockResolvedValue({
+      assignments: [
+        { student_number: 6, date: '2026-07-15', start: '16:00:00', end: '16:20:00' },
+      ],
+      unassigned_students: [],
+      violated_constraints: [],
+    })
+    renderSchedulePage()
+    await waitFor(() => {
+      expect(screen.getByTestId('extras-confirm-dialog')).toBeInTheDocument()
+    })
+    fireEvent.click(screen.getByRole('button', { name: '含める' }))
+    // スケジュール完了後、検証エラーは表示されない（6 は authorizedExtras）
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: '保存' })).toBeInTheDocument()
+    })
+    expect(screen.queryByTestId('validation-alert')).not.toBeInTheDocument()
   })
 })

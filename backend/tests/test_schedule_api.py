@@ -391,3 +391,45 @@ def test_schedule_api_accepts_solver_time_limit_option(
     assert resp.status_code == 200, resp.text
     body = resp.json()
     assert len(body["assignments"]) == 3
+
+
+# ---------------------------------------------------------------------------
+# 9. excluded_students：名簿外回答などをフロントから明示的に除外できる
+# ---------------------------------------------------------------------------
+
+
+def test_schedule_api_excludes_specified_students(
+    isolated_data_root: Path,
+) -> None:
+    """``excluded_students`` で指定した出席番号は assignments / unassigned に現れない。
+
+    Form 受領が名簿に登録されていない生徒（例：誤入力された出席番号）から
+    届いた場合に、フロントの確認ダイアログで「除外」を選んだ際の挙動を担保する。
+    """
+    with TestClient(create_app()) as client:
+        project_id = _create_project_with_form_json(client)
+        for sn in (1, 2, 3):
+            _save_response_for(
+                project_id=project_id,
+                sn=sn,
+                slots=[("2026-07-15", "16:00", "16:20")],
+            )
+        # 名簿外の出席番号 6 が回答してきたケースをシミュレート
+        _save_response_for(
+            project_id=project_id,
+            sn=6,
+            slots=[("2026-07-15", "16:00", "16:20")],
+        )
+
+        resp = client.post(
+            f"/api/projects/{project_id}/schedule",
+            json={"excluded_students": [6]},
+        )
+
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    placed = {a["student_number"] for a in body["assignments"]}
+    unassigned = set(body["unassigned_students"])
+    # sn=6 はどちらにも現れない
+    assert 6 not in placed
+    assert 6 not in unassigned

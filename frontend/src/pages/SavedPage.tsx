@@ -139,6 +139,21 @@ export default function SavedPage() {
         >
           {unlocking ? '処理中...' : '再編集'}
         </button>
+        <button
+          type="button"
+          onClick={() => navigate(`/projects/${projectId}`)}
+          style={{
+            padding: '10px 24px',
+            fontSize: '1rem',
+            cursor: 'pointer',
+            backgroundColor: '#fff',
+            color: '#374151',
+            border: '1px solid #d1d5db',
+            borderRadius: '4px',
+          }}
+        >
+          プロジェクトへ戻る
+        </button>
       </div>
     </div>
   )

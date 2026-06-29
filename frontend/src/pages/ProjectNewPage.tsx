@@ -3,7 +3,7 @@
  * requirements.md §4.2, §4.3
  * - display_name（必須）
  * - slot_minutes
- * - candidate_dates（候補日、1行1日 YYYY-MM-DD 形式）
+ * - candidate_dates（候補日、カレンダー UI で複数選択）
  * - candidate_time_slots（候補時間枠、開始/終了ペア）
  * - student_numbers（出席番号リスト、カンマ区切り）
  */
@@ -13,6 +13,230 @@ import { useNavigate } from 'react-router-dom'
 import { useMutation } from '@tanstack/react-query'
 import type { FormEvent } from 'react'
 import { projectsApi } from '../api'
+
+/** "YYYY-MM-DD" 形式に整形 */
+function formatYMD(year: number, month0: number, day: number): string {
+  return `${year}-${String(month0 + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`
+}
+
+interface CandidateDatesCalendarProps {
+  value: string[] // "YYYY-MM-DD"[]
+  onChange: (next: string[]) => void
+}
+
+/**
+ * 候補日を複数選択できるカレンダー UI。
+ * クリックで日付をトグル選択。月送りボタンで前後の月へ移動可能。
+ * 選択済みの日付は下部にチップ表示し、× で個別解除できる。
+ */
+function CandidateDatesCalendar({ value, onChange }: CandidateDatesCalendarProps) {
+  const today = new Date()
+  const [viewYear, setViewYear] = useState(today.getFullYear())
+  const [viewMonth, setViewMonth] = useState(today.getMonth()) // 0-11
+
+  const selectedSet = new Set(value)
+
+  const daysInMonth = new Date(viewYear, viewMonth + 1, 0).getDate()
+  const firstWeekday = new Date(viewYear, viewMonth, 1).getDay() // 0=Sun..6=Sat
+  const todayStr = formatYMD(
+    today.getFullYear(),
+    today.getMonth(),
+    today.getDate(),
+  )
+
+  function gotoPrevMonth() {
+    if (viewMonth === 0) {
+      setViewYear(viewYear - 1)
+      setViewMonth(11)
+    } else {
+      setViewMonth(viewMonth - 1)
+    }
+  }
+  function gotoNextMonth() {
+    if (viewMonth === 11) {
+      setViewYear(viewYear + 1)
+      setViewMonth(0)
+    } else {
+      setViewMonth(viewMonth + 1)
+    }
+  }
+
+  function toggleDate(dateStr: string) {
+    if (selectedSet.has(dateStr)) {
+      onChange(value.filter((d) => d !== dateStr))
+    } else {
+      onChange([...value, dateStr].sort())
+    }
+  }
+
+  // 6 行 × 7 列のグリッドを構築
+  const cells: Array<{ day: number; dateStr: string } | null> = []
+  for (let i = 0; i < firstWeekday; i++) cells.push(null)
+  for (let d = 1; d <= daysInMonth; d++) {
+    cells.push({ day: d, dateStr: formatYMD(viewYear, viewMonth, d) })
+  }
+  while (cells.length % 7 !== 0) cells.push(null)
+  const weeks: Array<Array<{ day: number; dateStr: string } | null>> = []
+  for (let i = 0; i < cells.length; i += 7) weeks.push(cells.slice(i, i + 7))
+
+  const dayLabels = ['日', '月', '火', '水', '木', '金', '土']
+  const cellBase: React.CSSProperties = {
+    border: '1px solid #e5e7eb',
+    padding: 0,
+    textAlign: 'center',
+    width: '40px',
+    height: '36px',
+  }
+
+  return (
+    <div data-testid="candidate-dates-calendar">
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: '0.5rem',
+          marginBottom: '0.5rem',
+        }}
+      >
+        <button
+          type="button"
+          onClick={gotoPrevMonth}
+          aria-label="前の月"
+          data-testid="calendar-prev-month"
+        >
+          ◀
+        </button>
+        <span style={{ minWidth: '7em', textAlign: 'center' }}>
+          {viewYear}年 {viewMonth + 1}月
+        </span>
+        <button
+          type="button"
+          onClick={gotoNextMonth}
+          aria-label="次の月"
+          data-testid="calendar-next-month"
+        >
+          ▶
+        </button>
+      </div>
+      <table
+        style={{ borderCollapse: 'collapse' }}
+        aria-label={`${viewYear}年${viewMonth + 1}月のカレンダー`}
+      >
+        <thead>
+          <tr>
+            {dayLabels.map((d, i) => (
+              <th
+                key={d}
+                style={{
+                  ...cellBase,
+                  backgroundColor: '#f9fafb',
+                  color: i === 0 ? '#dc2626' : i === 6 ? '#2563eb' : '#374151',
+                  fontWeight: 'normal',
+                  fontSize: '0.875rem',
+                }}
+              >
+                {d}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {weeks.map((week, wi) => (
+            <tr key={wi}>
+              {week.map((cell, ci) => {
+                if (cell == null) {
+                  return <td key={ci} style={cellBase} />
+                }
+                const isSelected = selectedSet.has(cell.dateStr)
+                const isToday = cell.dateStr === todayStr
+                return (
+                  <td key={ci} style={cellBase}>
+                    <button
+                      type="button"
+                      onClick={() => toggleDate(cell.dateStr)}
+                      data-testid={`calendar-day-${cell.dateStr}`}
+                      aria-label={`${cell.dateStr}${isSelected ? '（選択中）' : ''}`}
+                      aria-pressed={isSelected}
+                      style={{
+                        width: '100%',
+                        height: '100%',
+                        cursor: 'pointer',
+                        border: isToday ? '1px solid #2563eb' : 'none',
+                        backgroundColor: isSelected ? '#2563eb' : 'transparent',
+                        color: isSelected
+                          ? '#fff'
+                          : ci === 0
+                            ? '#dc2626'
+                            : ci === 6
+                              ? '#2563eb'
+                              : '#111827',
+                        fontWeight: isSelected ? 'bold' : 'normal',
+                        fontSize: '0.875rem',
+                      }}
+                    >
+                      {cell.day}
+                    </button>
+                  </td>
+                )
+              })}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+
+      {/* 選択済みリスト */}
+      <div style={{ marginTop: '0.5rem' }}>
+        {value.length === 0 ? (
+          <p
+            style={{ fontSize: '0.875rem', color: '#6b7280', margin: '0.25rem 0' }}
+          >
+            まだ候補日が選択されていません。カレンダーから日付をクリックして選択してください。
+          </p>
+        ) : (
+          <div
+            data-testid="selected-dates-list"
+            style={{ display: 'flex', flexWrap: 'wrap', gap: '0.25rem' }}
+          >
+            {value.map((d) => (
+              <span
+                key={d}
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '0.25rem',
+                  padding: '0.15rem 0.5rem',
+                  backgroundColor: '#e0f2fe',
+                  border: '1px solid #bae6fd',
+                  borderRadius: '999px',
+                  fontSize: '0.85rem',
+                }}
+              >
+                {d}
+                <button
+                  type="button"
+                  onClick={() => toggleDate(d)}
+                  aria-label={`${d} を解除`}
+                  data-testid={`selected-date-remove-${d}`}
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    cursor: 'pointer',
+                    color: '#0369a1',
+                    fontSize: '1rem',
+                    lineHeight: 1,
+                    padding: 0,
+                  }}
+                >
+                  ×
+                </button>
+              </span>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
 
 /** "HH:MM" → 0時からの分数。形式不正なら null */
 function parseHHMM(s: string): number | null {
@@ -58,10 +282,10 @@ export default function ProjectNewPage() {
   const navigate = useNavigate()
 
   const [displayName, setDisplayName] = useState('')
-  const [slotMinutes, setSlotMinutes] = useState(20)
-  const [candidateDatesText, setCandidateDatesText] = useState('')
+  const [slotMinutes, setSlotMinutes] = useState(60)
+  const [candidateDates, setCandidateDates] = useState<string[]>([])
   const [startTime, setStartTime] = useState('16:00')
-  const [endTime, setEndTime] = useState('16:20')
+  const [endTime, setEndTime] = useState('17:00')
   const [studentNumbersText, setStudentNumbersText] = useState('')
   const [validationError, setValidationError] = useState('')
 
@@ -85,13 +309,10 @@ export default function ProjectNewPage() {
       return
     }
 
-    const dates = candidateDatesText
-      .split('\n')
-      .map((d) => d.trim())
-      .filter(Boolean)
+    const dates = [...candidateDates].sort()
 
     if (dates.length === 0) {
-      setValidationError('候補日を1行以上入力してください（例: 2026-07-15）')
+      setValidationError('候補日をカレンダーから1日以上選択してください')
       return
     }
 
@@ -166,17 +387,12 @@ export default function ProjectNewPage() {
 
         {/* 候補日 */}
         <div style={{ marginBottom: '1rem' }}>
-          <label htmlFor="candidate-dates">
-            候補日（1行1日、YYYY-MM-DD形式）
-          </label>
-          <br />
-          <textarea
-            id="candidate-dates"
-            value={candidateDatesText}
-            onChange={(e) => setCandidateDatesText(e.target.value)}
-            placeholder={'2026-07-15\n2026-07-16'}
-            rows={4}
-            style={{ width: '100%', maxWidth: '400px' }}
+          <div id="candidate-dates-label" style={{ marginBottom: '0.25rem' }}>
+            候補日
+          </div>
+          <CandidateDatesCalendar
+            value={candidateDates}
+            onChange={setCandidateDates}
           />
         </div>
 

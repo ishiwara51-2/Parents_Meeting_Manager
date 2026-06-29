@@ -100,9 +100,15 @@ describe('ProjectNewPage', () => {
     const nameInput = screen.getByLabelText(/プロジェクト名/)
     await user.type(nameInput, 'テスト面談')
 
-    // 候補日を入力 (textarea)
-    const datesInput = screen.getByLabelText(/候補日/)
-    await user.type(datesInput, '2026-07-15')
+    // 候補日をカレンダーから選択（任意の日付）
+    await waitFor(() => {
+      expect(screen.getByTestId('candidate-dates-calendar')).toBeInTheDocument()
+    })
+    const anyDayButton = screen
+      .getAllByTestId(/^calendar-day-/)
+      .find((el) => !el.hasAttribute('disabled'))
+    expect(anyDayButton).toBeDefined()
+    await user.click(anyDayButton!)
 
     // 作成ボタンをクリック
     const submitButton = screen.getByRole('button', { name: '作成' })
@@ -112,5 +118,72 @@ describe('ProjectNewPage', () => {
     await waitFor(() => {
       expect(screen.getByTestId('project-page')).toBeInTheDocument()
     })
+  })
+
+  it('カレンダーから日付をクリックで選択／解除できる', async () => {
+    const user = userEvent.setup()
+    renderWithProviders(<ProjectNewPage />)
+
+    const calendar = screen.getByTestId('candidate-dates-calendar')
+    expect(calendar).toBeInTheDocument()
+
+    const anyDay = screen
+      .getAllByTestId(/^calendar-day-/)
+      .find((el) => !el.hasAttribute('disabled'))!
+    const ymd = anyDay.getAttribute('data-testid')!.replace('calendar-day-', '')
+
+    // 1 度クリックで選択（チップが表示される）
+    await user.click(anyDay)
+    expect(screen.getByTestId('selected-dates-list')).toHaveTextContent(ymd)
+
+    // もう一度クリックで解除
+    await user.click(anyDay)
+    expect(screen.queryByTestId('selected-dates-list')).not.toBeInTheDocument()
+  })
+
+  it('候補日が未選択でサブミットするとカレンダー指示のエラーを表示する', async () => {
+    const user = userEvent.setup()
+    renderWithProviders(<ProjectNewPage />)
+
+    // プロジェクト名は入力するが、候補日は未選択
+    await user.type(screen.getByLabelText(/プロジェクト名/), 'テスト')
+    await user.click(screen.getByRole('button', { name: '作成' }))
+
+    await waitFor(() => {
+      expect(screen.getByRole('alert')).toHaveTextContent(
+        /カレンダーから.*選択/,
+      )
+    })
+  })
+
+  it('「次の月」ボタンで翌月へ移動する', async () => {
+    const user = userEvent.setup()
+    renderWithProviders(<ProjectNewPage />)
+
+    const before = screen
+      .getByTestId('candidate-dates-calendar')
+      .textContent?.match(/(\d{4})年 ?(\d+)月/)
+    expect(before).not.toBeNull()
+    const [, yStr, mStr] = before!
+    const beforeYear = Number(yStr)
+    const beforeMonth = Number(mStr)
+
+    await user.click(screen.getByTestId('calendar-next-month'))
+
+    const after = screen
+      .getByTestId('candidate-dates-calendar')
+      .textContent?.match(/(\d{4})年 ?(\d+)月/)
+    const [, yStr2, mStr2] = after!
+    const afterYear = Number(yStr2)
+    const afterMonth = Number(mStr2)
+
+    // 12月の翌は翌年1月
+    if (beforeMonth === 12) {
+      expect(afterYear).toBe(beforeYear + 1)
+      expect(afterMonth).toBe(1)
+    } else {
+      expect(afterYear).toBe(beforeYear)
+      expect(afterMonth).toBe(beforeMonth + 1)
+    }
   })
 })
