@@ -1,0 +1,77 @@
+{
+    "vitest_collected":  38,
+    "errors_count":  0,
+    "phase_id":  "4.4b",
+    "approval_required":  false,
+    "git_head_at_check":  "73f32ff9965e0ec28030f34a4f5de678b2233d2e",
+    "overall_result":  "PASS",
+    "vitest_passed":  38,
+    "pytest_passed":  122,
+    "checked_at":  "2026-06-29T15:35:26+09:00",
+    "pytest_collected":  122,
+    "detail_logs":  {
+
+                    },
+    "checks":  [
+                   {
+                       "detail":  "No changes in audit-protected paths",
+                       "result":  "PASS",
+                       "name":  "audit_trail_integrity"
+                   },
+                   {
+                       "detail":  "Check-PhaseDone.ps1 has no uncommitted changes",
+                       "result":  "PASS",
+                       "name":  "check_script_unmodified"
+                   },
+                   {
+                       "detail":  "docs\\handoff_phase4_4b.md",
+                       "result":  "PASS",
+                       "name":  "handoff_file_exists"
+                   },
+                   {
+                       "detail":  "phase4.4b-done",
+                       "result":  "PASS",
+                       "name":  "git_tag_exists"
+                   },
+                   {
+                       "detail":  "tag matches HEAD",
+                       "result":  "PASS",
+                       "name":  "tag_at_head"
+                   },
+                   {
+                       "detail":  "",
+                       "result":  "PASS",
+                       "name":  "no_uncommitted_changes"
+                   },
+                   {
+                       "detail":  "frontend\\src\\pages\\SchedulePage.tsx contains all required keywords",
+                       "result":  "PASS",
+                       "name":  "dnd_implementation"
+                   },
+                   {
+                       "detail":  "test(phase4.4b) found at index 1",
+                       "result":  "PASS",
+                       "name":  "tdd_test_commit"
+                   },
+                   {
+                       "detail":  "test commit (idx=1) before feat commit (idx=2)",
+                       "result":  "PASS",
+                       "name":  "tdd_order"
+                   },
+                   {
+                       "detail":  "tests failed at test commit (as expected for TDD RED)",
+                       "result":  "PASS",
+                       "name":  "tdd_strict_red"
+                   },
+                   {
+                       "detail":  "collected=122, passed=122",
+                       "result":  "PASS",
+                       "name":  "pytest"
+                   },
+                   {
+                       "detail":  "passed=38",
+                       "result":  "PASS",
+                       "name":  "vitest"
+                   }
+               ]
+}
