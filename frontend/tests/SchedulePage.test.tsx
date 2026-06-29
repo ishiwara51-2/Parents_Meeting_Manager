@@ -85,10 +85,10 @@ describe('SchedulePage', () => {
     vi.mocked(api.scheduleApi.run).mockResolvedValue(MOCK_RESULT_FEASIBLE)
     renderSchedulePage()
     await waitFor(() => {
-      // 16:00 が含まれる時間枠ラベルが表示される
+      // "16:00 - 16:20" は "16:00" を含む唯一の行ラベル
       expect(screen.getByText(/16:00/)).toBeInTheDocument()
-      // 16:20 が含まれる時間枠ラベルが表示される
-      expect(screen.getByText(/16:20/)).toBeInTheDocument()
+      // "16:20 - 16:40" は "16:40" を含む唯一の行ラベル（"16:20" は2行にまたがるため16:40で一意を確認）
+      expect(screen.getByText(/16:40/)).toBeInTheDocument()
     })
   })
 
