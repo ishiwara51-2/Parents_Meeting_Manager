@@ -1,0 +1,84 @@
+{
+    "detail_logs":  {
+
+                    },
+    "approval_status":  "pending",
+    "vitest_collected":  0,
+    "checked_at":  "2026-06-29T19:21:45+09:00",
+    "overall_result":  "PASS",
+    "errors_count":  0,
+    "git_head_at_check":  "99b658514eed19b50323cf294d4913955e486a7e",
+    "approval_required":  true,
+    "pytest_collected":  126,
+    "checks":  [
+                   {
+                       "detail":  "All changes in range use legitimate prefixes (chore(check), fix(check), chore(approval))",
+                       "result":  "PASS",
+                       "name":  "audit_trail_integrity"
+                   },
+                   {
+                       "detail":  "Check-PhaseDone.ps1 has no uncommitted changes",
+                       "result":  "PASS",
+                       "name":  "check_script_unmodified"
+                   },
+                   {
+                       "detail":  "docs\\handoff_phase5_1.md",
+                       "result":  "PASS",
+                       "name":  "handoff_file_exists"
+                   },
+                   {
+                       "detail":  "phase5.1-done",
+                       "result":  "PASS",
+                       "name":  "git_tag_exists"
+                   },
+                   {
+                       "detail":  "tag matches HEAD",
+                       "result":  "PASS",
+                       "name":  "tag_at_head"
+                   },
+                   {
+                       "detail":  "",
+                       "result":  "PASS",
+                       "name":  "no_uncommitted_changes"
+                   },
+                   {
+                       "detail":  "backend\\app\\services\\pdf_generator.py",
+                       "result":  "PASS",
+                       "name":  "file_exists"
+                   },
+                   {
+                       "detail":  "backend\\tests\\test_pdf_generator.py",
+                       "result":  "PASS",
+                       "name":  "file_exists"
+                   },
+                   {
+                       "detail":  "docs\\pdf_decisions.md",
+                       "result":  "PASS",
+                       "name":  "file_exists"
+                   },
+                   {
+                       "detail":  "test(phase5.1) found at index 3",
+                       "result":  "PASS",
+                       "name":  "tdd_test_commit"
+                   },
+                   {
+                       "detail":  "test commit (idx=3) before feat commit (idx=4)",
+                       "result":  "PASS",
+                       "name":  "tdd_order"
+                   },
+                   {
+                       "detail":  "tests failed at test commit (as expected for TDD RED)",
+                       "result":  "PASS",
+                       "name":  "tdd_strict_red"
+                   },
+                   {
+                       "detail":  "collected=126, passed=126",
+                       "result":  "PASS",
+                       "name":  "pytest"
+                   }
+               ],
+    "next_phase_blocked":  true,
+    "pytest_passed":  126,
+    "phase_id":  "5.1",
+    "vitest_passed":  0
+}
