@@ -11,7 +11,7 @@
  *   - 候補日時外移動の警告ダイアログ（Phase 4.4b）
  */
 
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, fireEvent } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { MemoryRouter, Routes, Route } from 'react-router-dom'
 import SchedulePage, {
@@ -31,6 +31,9 @@ vi.mock('../src/api', () => ({
   },
   responsesApi: {
     list: vi.fn(),
+  },
+  draftsApi: {
+    save: vi.fn(),
   },
 }))
 
@@ -256,5 +259,73 @@ describe('Phase 4.4b: DnD と警告', () => {
     expect(screen.getByText('1')).toBeInTheDocument()
     // 日付が含まれる
     expect(screen.getByText(/2026-07-16/)).toBeInTheDocument()
+  })
+})
+
+// ===== Phase 4.4c テスト: 保存ボタンと SavedPage への遷移 =====
+
+const MOCK_DRAFT = {
+  project_id: PROJECT_ID,
+  saved_at: '2026-07-15T20:00:00+09:00',
+  locked: true,
+  assignments: MOCK_RESULT_FEASIBLE.assignments,
+  unassigned_students: [],
+  violated_constraints: [],
+}
+
+describe('Phase 4.4c: 保存ボタン', () => {
+  beforeEach(() => {
+    vi.resetAllMocks()
+    vi.mocked(api.scheduleApi.run).mockResolvedValue(MOCK_RESULT_FEASIBLE)
+    vi.mocked(api.projectsApi.get).mockResolvedValue(MOCK_PROJECT)
+    vi.mocked(api.responsesApi.list).mockResolvedValue(MOCK_RESPONSES)
+  })
+
+  it('「保存」ボタンが表示される', async () => {
+    renderSchedulePage()
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: '保存' })).toBeInTheDocument()
+    })
+  })
+
+  it('「保存」ボタンクリックで draftsApi.save が正しい引数で呼ばれる', async () => {
+    vi.mocked(api.draftsApi.save).mockResolvedValue(MOCK_DRAFT)
+    renderSchedulePage()
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: '保存' })).toBeInTheDocument()
+    })
+    fireEvent.click(screen.getByRole('button', { name: '保存' }))
+    await waitFor(() => {
+      expect(vi.mocked(api.draftsApi.save)).toHaveBeenCalledWith(
+        PROJECT_ID,
+        expect.objectContaining({
+          assignments: expect.any(Array),
+          unassigned_students: expect.any(Array),
+          violated_constraints: expect.any(Array),
+        }),
+      )
+    })
+  })
+
+  it('保存成功時に /projects/:projectId/saved へ遷移する', async () => {
+    vi.mocked(api.draftsApi.save).mockResolvedValue(MOCK_DRAFT)
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter initialEntries={[`/projects/${PROJECT_ID}/schedule`]}>
+          <Routes>
+            <Route path="/projects/:projectId/schedule" element={<SchedulePage />} />
+            <Route path="/projects/:projectId/saved" element={<div>保存完了ページ</div>} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>
+    )
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: '保存' })).toBeInTheDocument()
+    })
+    fireEvent.click(screen.getByRole('button', { name: '保存' }))
+    await waitFor(() => {
+      expect(screen.getByText('保存完了ページ')).toBeInTheDocument()
+    })
   })
 })
