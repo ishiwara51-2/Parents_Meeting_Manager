@@ -26,6 +26,13 @@ import type {
   Response as ApiResponse,
   Draft,
 } from '../api/types'
+import {
+  Alert,
+  AppShell,
+  Button,
+  Card,
+  CardHeader,
+} from '../components/ui'
 
 // ===== 公開ユーティリティ関数（テスト用エクスポート）=====
 
@@ -211,62 +218,31 @@ export function ExtraStudentsConfirmDialog({
   onExclude,
 }: ExtraStudentsConfirmDialogProps) {
   return (
-    <div
-      role="dialog"
-      aria-modal="true"
-      data-testid="extras-confirm-dialog"
-      style={{
-        position: 'fixed',
-        top: '50%',
-        left: '50%',
-        transform: 'translate(-50%, -50%)',
-        backgroundColor: '#fff',
-        border: '2px solid #2563eb',
-        borderRadius: '8px',
-        padding: '24px',
-        zIndex: 1000,
-        boxShadow: '0 4px 16px rgba(0,0,0,0.25)',
-        maxWidth: '480px',
-        width: '90%',
-      }}
-    >
-      <h2 style={{ color: '#1d4ed8', marginTop: 0, fontSize: '1.1rem' }}>
-        名簿外の出席番号からの回答
-      </h2>
-      <p style={{ margin: '8px 0' }}>
-        出席番号 <strong>{extras.join(', ')}</strong>{' '}
-        は生徒名簿に登録されていません。
-      </p>
-      <p style={{ margin: '8px 0', color: '#6b7280', fontSize: '0.9rem' }}>
-        日程案に含めますか？
-      </p>
-      <div style={{ display: 'flex', gap: '8px', marginTop: '16px' }}>
-        <button
-          onClick={onInclude}
-          style={{
-            padding: '8px 20px',
-            cursor: 'pointer',
-            backgroundColor: '#2563eb',
-            color: '#fff',
-            border: 'none',
-            borderRadius: '4px',
-          }}
-        >
-          含める
-        </button>
-        <button
-          onClick={onExclude}
-          style={{
-            padding: '8px 20px',
-            cursor: 'pointer',
-            backgroundColor: '#fff',
-            color: '#374151',
-            border: '1px solid #d1d5db',
-            borderRadius: '4px',
-          }}
-        >
-          除外する
-        </button>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
+      <div
+        role="dialog"
+        aria-modal="true"
+        data-testid="extras-confirm-dialog"
+        className="bg-surface rounded-lg shadow-popover max-w-md w-full p-6 border border-border"
+      >
+        <h2 className="text-lg font-semibold text-brand-700 mb-2">
+          名簿外の出席番号からの回答
+        </h2>
+        <p className="text-sm text-fg mb-1">
+          出席番号 <strong className="font-semibold">{extras.join(', ')}</strong>{' '}
+          は生徒名簿に登録されていません。
+        </p>
+        <p className="text-xs text-fg-muted mb-4">
+          日程案に含めますか？
+        </p>
+        <div className="flex gap-2 justify-end">
+          <Button variant="secondary" onClick={onExclude}>
+            除外する
+          </Button>
+          <Button variant="primary" onClick={onInclude}>
+            含める
+          </Button>
+        </div>
       </div>
     </div>
   )
@@ -284,52 +260,33 @@ export interface WarningDialogProps {
 /** 候補日時外への移動警告ダイアログ */
 export function WarningDialog({ studentNumber, date, start, onClose }: WarningDialogProps) {
   return (
-    <div
-      role="dialog"
-      aria-modal="true"
-      data-testid="warning-dialog"
-      style={{
-        position: 'fixed',
-        top: '50%',
-        left: '50%',
-        transform: 'translate(-50%, -50%)',
-        backgroundColor: '#fff',
-        border: '2px solid #f59e0b',
-        borderRadius: '8px',
-        padding: '24px',
-        zIndex: 1000,
-        boxShadow: '0 4px 16px rgba(0,0,0,0.25)',
-        maxWidth: '400px',
-        width: '90%',
-      }}
-    >
-      <h2 style={{ color: '#b45309', marginTop: 0, fontSize: '1.1rem' }}>
-        ⚠ 候補日時外への移動
-      </h2>
-      <p style={{ margin: '8px 0' }}>
-        出席番号 <strong>{studentNumber}</strong> の生徒は、
-        <strong>
-          {date} {start}
-        </strong>{' '}
-        を候補日時として回答していません。
-      </p>
-      <p style={{ margin: '8px 0', color: '#6b7280', fontSize: '0.9rem' }}>
-        移動は許可されますが、この生徒の希望に沿わない可能性があります。
-      </p>
-      <button
-        onClick={onClose}
-        style={{
-          marginTop: '12px',
-          padding: '8px 20px',
-          cursor: 'pointer',
-          backgroundColor: '#f59e0b',
-          color: '#fff',
-          border: 'none',
-          borderRadius: '4px',
-        }}
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
+      <div
+        role="dialog"
+        aria-modal="true"
+        data-testid="warning-dialog"
+        className="bg-surface rounded-lg shadow-popover max-w-md w-full p-6 border border-warning-200"
       >
-        閉じる
-      </button>
+        <h2 className="text-lg font-semibold text-warning-700 mb-2 flex items-center gap-2">
+          <span aria-hidden="true">⚠</span>
+          候補日時外への移動
+        </h2>
+        <p className="text-sm text-fg mb-1">
+          出席番号 <strong className="font-semibold">{studentNumber}</strong> の生徒は、
+          <strong className="font-semibold">
+            {date} {start}
+          </strong>{' '}
+          を候補日時として回答していません。
+        </p>
+        <p className="text-xs text-fg-muted mb-4">
+          移動は許可されますが、この生徒の希望に沿わない可能性があります。
+        </p>
+        <div className="flex justify-end">
+          <Button variant="primary" onClick={onClose}>
+            閉じる
+          </Button>
+        </div>
+      </div>
     </div>
   )
 }
@@ -368,47 +325,36 @@ function AvailabilityIssueAlert({
     <div
       role="alert"
       data-testid="availability-issue-alert"
-      style={{
-        border: '1px solid #f59e0b',
-        backgroundColor: '#fffbeb',
-        borderRadius: '4px',
-        padding: '12px 16px',
-        marginBottom: '16px',
-      }}
+      className="rounded-md border border-warning-200 bg-warning-50 px-4 py-3 mb-4 text-sm"
     >
-      <h2 style={{ color: '#b45309', marginTop: 0, fontSize: '1rem' }}>
-        ⚠ 候補日時に関する警告
+      <h2 className="text-base font-semibold text-warning-700 mb-2 flex items-center gap-2">
+        <span aria-hidden="true">⚠</span>
+        候補日時に関する警告
       </h2>
       {noAvailability.length > 0 && (
-        <p style={{ margin: '4px 0' }}>
-          出席番号 <strong>{noAvailability.join(', ')}</strong>{' '}
+        <p className="text-fg my-1">
+          出席番号 <strong className="font-semibold">{noAvailability.join(', ')}</strong>{' '}
           は最新の回答では候補日時がありません。既存ドラフトの配置を維持していますが、配置先を再検討してください。
         </p>
       )}
       {outOfCurrentAvailability.length > 0 && (
-        <p style={{ margin: '4px 0' }}>
-          出席番号 <strong>{outOfCurrentAvailability.join(', ')}</strong>{' '}
+        <p className="text-fg my-1">
+          出席番号 <strong className="font-semibold">{outOfCurrentAvailability.join(', ')}</strong>{' '}
           の現在の配置先は、最新の回答の候補日時に含まれていません。
         </p>
       )}
-      <button
-        type="button"
-        onClick={onReorganize}
-        disabled={reorganizeDisabled}
-        data-testid="reorganize-warning-students-button"
-        style={{
-          marginTop: '8px',
-          padding: '6px 16px',
-          cursor: reorganizeDisabled ? 'not-allowed' : 'pointer',
-          backgroundColor: '#f59e0b',
-          color: '#fff',
-          border: 'none',
-          borderRadius: '4px',
-          opacity: reorganizeDisabled ? 0.6 : 1,
-        }}
-      >
-        警告対象を再配置する
-      </button>
+      <div className="mt-3">
+        <Button
+          variant="primary"
+          size="sm"
+          onClick={onReorganize}
+          disabled={reorganizeDisabled}
+          data-testid="reorganize-warning-students-button"
+          className="bg-warning-500 hover:bg-warning-700 focus-visible:ring-warning-500"
+        >
+          警告対象を再配置する
+        </Button>
+      </div>
     </div>
   )
 }
@@ -431,26 +377,21 @@ function ValidationAlert({ duplicates, outOfRoster }: ValidationAlertProps) {
     <div
       role="alert"
       data-testid="validation-alert"
-      style={{
-        border: '1px solid #ef4444',
-        backgroundColor: '#fef2f2',
-        borderRadius: '4px',
-        padding: '12px 16px',
-        marginBottom: '16px',
-      }}
+      className="rounded-md border border-danger-200 bg-danger-50 px-4 py-3 mb-4 text-sm"
     >
-      <h2 style={{ color: '#b91c1c', marginTop: 0, fontSize: '1rem' }}>
-        ⚠ 配置の検証エラー
+      <h2 className="text-base font-semibold text-danger-700 mb-2 flex items-center gap-2">
+        <span aria-hidden="true">⚠</span>
+        配置の検証エラー
       </h2>
       {duplicates.length > 0 && (
-        <p style={{ margin: '4px 0' }}>
-          出席番号 <strong>{duplicates.join(', ')}</strong>{' '}
+        <p className="text-fg my-1">
+          出席番号 <strong className="font-semibold">{duplicates.join(', ')}</strong>{' '}
           が複数のセルに入力されています。重複を解消してください。
         </p>
       )}
       {outOfRoster.length > 0 && (
-        <p style={{ margin: '4px 0' }}>
-          出席番号 <strong>{outOfRoster.join(', ')}</strong>{' '}
+        <p className="text-fg my-1">
+          出席番号 <strong className="font-semibold">{outOfRoster.join(', ')}</strong>{' '}
           は生徒名簿に登録されていません。
         </p>
       )}
@@ -471,18 +412,14 @@ function InfeasibleInfo({ violatedConstraints, unassignedStudents }: InfeasibleI
   return (
     <div
       role="alert"
-      style={{
-        border: '1px solid #f87171',
-        borderRadius: '4px',
-        backgroundColor: '#fef2f2',
-        padding: '16px',
-        marginBottom: '16px',
-      }}
+      className="rounded-md border border-danger-200 bg-danger-50 p-4 mb-4 text-sm"
     >
       {violatedConstraints.length > 0 && (
-        <div>
-          <h2 style={{ color: '#b91c1c', marginTop: 0 }}>違反している制約</h2>
-          <ul>
+        <div className="mb-2">
+          <h2 className="text-base font-semibold text-danger-700 mb-1">
+            違反している制約
+          </h2>
+          <ul className="list-disc list-inside text-fg space-y-0.5">
             {violatedConstraints.map((c, i) => (
               <li key={i}>{c}</li>
             ))}
@@ -491,8 +428,10 @@ function InfeasibleInfo({ violatedConstraints, unassignedStudents }: InfeasibleI
       )}
       {unassignedStudents.length > 0 && (
         <div>
-          <h2 style={{ color: '#b91c1c', marginTop: 0 }}>未配置の生徒</h2>
-          <p>出席番号: {unassignedStudents.join(', ')}</p>
+          <h2 className="text-base font-semibold text-danger-700 mb-1">
+            未配置の生徒
+          </h2>
+          <p className="text-fg">出席番号: {unassignedStudents.join(', ')}</p>
         </div>
       )}
     </div>
@@ -1353,27 +1292,48 @@ export default function SchedulePage() {
   // 名簿外確認ダイアログが表示中のときは、ローディング表示より優先する
   if (loading && pendingExtras == null) {
     return (
-      <div style={{ padding: '16px' }}>
-        <h1>日程案</h1>
-        <p>スケジューリング実行中...</p>
-      </div>
+      <AppShell
+        title="日程案"
+        breadcrumbs={[
+          { label: 'プロジェクト', to: `/projects/${projectId}` },
+          { label: '日程案' },
+        ]}
+        wide
+      >
+        <Card>
+          <p className="text-sm text-fg-muted">スケジューリング実行中...</p>
+        </Card>
+      </AppShell>
     )
   }
 
   if (error) {
     return (
-      <div style={{ padding: '16px' }}>
-        <h1>日程案</h1>
-        <div role="alert" style={{ color: '#b91c1c' }}>
-          エラー: {error}
-        </div>
-      </div>
+      <AppShell
+        title="日程案"
+        breadcrumbs={[
+          { label: 'プロジェクト', to: `/projects/${projectId}` },
+          { label: '日程案' },
+        ]}
+        wide
+      >
+        <Alert variant="error" title="エラー">
+          {error}
+        </Alert>
+      </AppShell>
     )
   }
 
   return (
-    <div style={{ padding: '16px' }}>
-      <h1>日程案</h1>
+    <AppShell
+      title="日程案"
+      subtitle="自動生成された配置をドラッグ＆ドロップやセル編集で調整できます。"
+      breadcrumbs={[
+        { label: 'プロジェクト', to: `/projects/${projectId}` },
+        { label: '日程案' },
+      ]}
+      wide
+    >
 
       {/* 名簿外回答の確認ダイアログ */}
       {pendingExtras != null && pendingExtras.length > 0 && (
@@ -1489,68 +1449,44 @@ export default function SchedulePage() {
 
       {/* Google Form 回答集計マトリクス（参考表示・読み取り専用）*/}
       {result != null && project != null && (
-        <section style={{ marginTop: '24px' }}>
-          <h2 style={{ fontSize: '1.1rem' }}>候補日時の回答集計</h2>
-          <p style={{ fontSize: '0.875rem', color: '#6b7280', marginTop: 0 }}>
-            各枠を「可」と回答した出席番号を列挙しています。
-          </p>
-          <AvailabilityMatrix responses={responses} project={project} />
+        <section className="mt-6">
+          <Card>
+            <CardHeader
+              title="候補日時の回答集計"
+              description="各枠を「可」と回答した出席番号を列挙しています。"
+            />
+            <AvailabilityMatrix responses={responses} project={project} />
+          </Card>
         </section>
       )}
 
       {/* 保存ボタン・保存エラー表示 */}
       {result != null && (
-        <div style={{ marginTop: '16px' }}>
+        <div className="mt-6 sticky bottom-0 bg-surface-muted py-3 -mx-6 px-6 border-t border-border">
           {saveError != null && (
-            <div
-              role="alert"
-              style={{
-                color: '#b91c1c',
-                backgroundColor: '#fef2f2',
-                border: '1px solid #f87171',
-                borderRadius: '4px',
-                padding: '8px 12px',
-                marginBottom: '8px',
-              }}
-            >
+            <Alert variant="error" className="mb-3">
               {saveError}
-            </div>
+            </Alert>
           )}
-          <div style={{ display: 'flex', gap: '8px' }}>
-            <button
+          <div className="flex gap-2">
+            <Button
+              variant="primary"
+              size="lg"
               onClick={handleSave}
               disabled={saving}
-              style={{
-                padding: '10px 24px',
-                fontSize: '1rem',
-                cursor: saving ? 'not-allowed' : 'pointer',
-                backgroundColor: '#2563eb',
-                color: '#fff',
-                border: 'none',
-                borderRadius: '4px',
-                opacity: saving ? 0.6 : 1,
-              }}
             >
               {saving ? '保存中...' : '保存'}
-            </button>
-            <button
-              type="button"
+            </Button>
+            <Button
+              variant="secondary"
+              size="lg"
               onClick={() => navigate(`/projects/${projectId}`)}
-              style={{
-                padding: '10px 24px',
-                fontSize: '1rem',
-                cursor: 'pointer',
-                backgroundColor: '#fff',
-                color: '#374151',
-                border: '1px solid #d1d5db',
-                borderRadius: '4px',
-              }}
             >
               プロジェクトへ戻る
-            </button>
+            </Button>
           </div>
         </div>
       )}
-    </div>
+    </AppShell>
   )
 }

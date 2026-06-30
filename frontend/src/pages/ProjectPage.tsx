@@ -16,6 +16,15 @@ import { useParams, useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { projectsApi, formApi, responsesApi } from '../api'
 import type { FormInfo } from '../api'
+import {
+  Alert,
+  AppShell,
+  Button,
+  Card,
+  CardHeader,
+  Stepper,
+} from '../components/ui'
+import type { Step, StepState } from '../components/ui'
 
 /** 自動ポーリング間隔（ミリ秒）。requirements.md §4.4 の既定 60 秒 */
 const POLLING_INTERVAL_MS = 60_000
@@ -26,6 +35,12 @@ const POLLING_INTERVAL_MS = 60_000
  */
 const formIntentKey = (projectId: string) => `pendingFormCreate:${projectId}`
 
+const STATUS_LABEL: Record<string, string> = {
+  in_progress: '進行中',
+  draft_saved: 'ドラフト保存済',
+  finalized: '確定済',
+}
+
 export default function ProjectPage() {
   const { projectId } = useParams<{ projectId: string }>()
   const navigate = useNavigate()
@@ -34,40 +49,27 @@ export default function ProjectPage() {
   const [formError, setFormError] = useState('')
   const [syncError, setSyncError] = useState('')
   const [copySuccess, setCopySuccess] = useState(false)
-  // OAuth 戻り後の自動再実行を「このマウントで1回だけ」に制限するガード
   const autoFormTriggeredRef = useRef(false)
 
-  // ----- データ取得 -----
-
-  /** プロジェクト詳細 */
   const { data: project, isLoading: projectLoading } = useQuery({
     queryKey: ['project', projectId],
     queryFn: () => projectsApi.get(projectId!),
   })
 
-  /**
-   * Form 情報（未作成の場合は 404 → isError=true）
-   * retry:false で即座に isError を確定させ "Form 作成" ボタンを表示する
-   */
   const {
     data: formInfo,
     isLoading: formLoading,
-    isError: formNotCreated,
   } = useQuery({
     queryKey: ['form', projectId],
     queryFn: () => formApi.get(projectId!),
     retry: false,
   })
 
-  /** 受領状況（受領済み / 未受領 出席番号） */
   const { data: responseStatus } = useQuery({
     queryKey: ['responses-status', projectId],
     queryFn: () => responsesApi.status(projectId!),
   })
 
-  // ----- Mutation -----
-
-  /** Form 作成 */
   const createFormMutation = useMutation({
     mutationFn: () => formApi.create(projectId!),
     onSuccess: () => {
@@ -76,12 +78,7 @@ export default function ProjectPage() {
       setFormError('')
     },
     onError: (err: Error & { status?: number }) => {
-      // 401: OAuth 未認証 → 認証フローへ。完了後にこのページに戻し、
-      // sessionStorage の「意図」フラグを useEffect が検知して自動再実行する。
-      // dev では callback (port 8000) から frontend (port 5173) へ戻す必要があるため
-      // 絶対URL（origin 付き）で next を渡す。
       if (err.status === 401) {
-        // 自動再試行後の 401 は無限ループ防止のため、リダイレクトせず通知する
         if (autoFormTriggeredRef.current) {
           if (projectId) sessionStorage.removeItem(formIntentKey(projectId))
           setFormError(
@@ -101,7 +98,6 @@ export default function ProjectPage() {
     },
   })
 
-  /** 手動回答同期（最新回答を取得ボタン） */
   const syncMutation = useMutation({
     mutationFn: () => responsesApi.sync(projectId!),
     onSuccess: () => {
@@ -112,8 +108,6 @@ export default function ProjectPage() {
       setSyncError(err.message ?? '回答の取得に失敗しました')
     },
   })
-
-  // ----- 自動ポーリング（60 秒間隔）-----
 
   useEffect(() => {
     if (!projectId) return
@@ -127,13 +121,10 @@ export default function ProjectPage() {
         })
         .catch(() => {
           // バックグラウンドポーリングのエラーはサイレント
-          // 手動ボタンからの明示的エラーは syncError で通知する
         })
     }, POLLING_INTERVAL_MS)
     return () => clearInterval(id)
   }, [projectId, queryClient])
-
-  // ----- イベントハンドラ -----
 
   const handleCopyUrl = async (url: string) => {
     try {
@@ -141,18 +132,13 @@ export default function ProjectPage() {
       setCopySuccess(true)
       setTimeout(() => setCopySuccess(false), 2000)
     } catch {
-      // clipboard API が使えない環境（HTTP など）ではサイレント失敗
+      // clipboard API が使えない環境ではサイレント失敗
     }
   }
 
-  // ----- Form 情報（作成直後は mutation data を優先） -----
   const currentFormInfo: FormInfo | undefined =
     formInfo ?? createFormMutation.data
 
-  // ----- OAuth 戻り後の自動再実行 -----
-  // ユーザーが Form 作成ボタンを押した結果 401 で OAuth に飛ばされた場合、
-  // 戻ってきたタイミング（このマウント）で意図フラグを検知して mutation を自動発火する。
-  // formLoading 中・既に Form が存在する場合・既に自動発火済みの場合は何もしない。
   useEffect(() => {
     if (!projectId) return
     if (autoFormTriggeredRef.current) return
@@ -164,156 +150,302 @@ export default function ProjectPage() {
     if (sessionStorage.getItem(formIntentKey(projectId)) !== '1') return
     autoFormTriggeredRef.current = true
     createFormMutation.mutate()
-    // createFormMutation はレンダリングごとに新しい参照になるため依存に含めない
-    // （自動発火はマウントあたり一度きりで autoFormTriggeredRef がガードする）
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectId, formLoading, currentFormInfo])
 
-  // ----- ローディング -----
-
   if (projectLoading || !project) {
     return (
-      <div>
-        <h1>プロジェクト</h1>
-        <p>読み込み中...</p>
-      </div>
+      <AppShell title="プロジェクト" breadcrumbs={[{ label: '読み込み中...' }]}>
+        <Card>
+          <p className="text-sm text-fg-muted">読み込み中...</p>
+        </Card>
+      </AppShell>
     )
   }
 
-  // ----- レンダリング -----
+  const totalStudents = project.student_numbers.length
+  const receivedCount = responseStatus?.received.length ?? 0
+  const progressPct = totalStudents > 0 ? Math.round((receivedCount / totalStudents) * 100) : 0
+
+  // ===== ワークフロー進捗の判定 =====
+  // 1. Form作成: currentFormInfo の有無
+  // 2. 回答収集: 受領 / 総数
+  // 3. 日程案作成: project.status が draft_saved / finalized なら完了
+  // 4. 保存: draft_saved / finalized で完了
+  const formDone = currentFormInfo != null
+  const allResponsesIn = totalStudents > 0 && receivedCount === totalStudents
+  const draftSaved =
+    project.status === 'draft_saved' || project.status === 'finalized'
+
+  function stateOf(stepIdx: number): StepState {
+    // 完了判定（後ろから優先的に判定）
+    if (stepIdx === 0) return formDone ? 'done' : 'active'
+    if (stepIdx === 1) {
+      if (allResponsesIn) return 'done'
+      if (formDone) return 'active'
+      return 'pending'
+    }
+    if (stepIdx === 2) {
+      if (draftSaved) return 'done'
+      if (allResponsesIn || receivedCount > 0) return 'active'
+      return 'pending'
+    }
+    if (stepIdx === 3) {
+      return draftSaved ? 'done' : 'pending'
+    }
+    return 'pending'
+  }
+
+  const steps: Step[] = [
+    {
+      key: 'form',
+      label: 'Form作成',
+      state: stateOf(0),
+    },
+    {
+      key: 'collect',
+      label: '回答収集',
+      hint:
+        totalStudents > 0 ? `${receivedCount} / ${totalStudents}` : undefined,
+      state: stateOf(1),
+    },
+    {
+      key: 'schedule',
+      label: '日程案作成',
+      state: stateOf(2),
+    },
+    {
+      key: 'save',
+      label: '保存',
+      state: stateOf(3),
+    },
+  ]
+
+  // 次のアクションを判定
+  const nextActionLabel = !formDone
+    ? 'Google Formを作成する'
+    : !allResponsesIn && receivedCount === 0
+      ? '保護者の回答を待っています'
+      : '面談日程案を作成する'
+  const nextActionDisabled = !formDone || (!allResponsesIn && receivedCount === 0)
 
   return (
-    <div>
-      <h1>{project.display_name}</h1>
-      <p>ステータス: {project.status}</p>
-      <p>
-        候補日: {project.candidate_dates.join(', ')}　/　コマ: {project.slot_minutes}分
-      </p>
-      <p>出席番号: {project.student_numbers.join(', ')}</p>
+    <AppShell
+      breadcrumbs={[{ label: 'プロジェクト' }]}
+      title={project.display_name}
+      subtitle={STATUS_LABEL[project.status] ?? project.status}
+    >
+      <div className="flex flex-col gap-5">
+        {/* ステッパー：ワークフロー進捗 */}
+        <Card padding="md">
+          <Stepper steps={steps} />
+          <div className="mt-3 pt-3 border-t border-border text-sm text-fg-muted text-center">
+            次のステップ:{' '}
+            <span className="font-semibold text-fg">{nextActionLabel}</span>
+          </div>
+        </Card>
 
-      {/* ===== Form セクション ===== */}
-      <section style={{ marginTop: '1.5rem', marginBottom: '1.5rem' }}>
-        <h2>候補日程聴取用 Google Form</h2>
-
-        {formLoading ? (
-          <p>読み込み中...</p>
-        ) : currentFormInfo ? (
-          <div>
-            <p>Form URL:</p>
-            <a
-              href={currentFormInfo.responderUri}
-              target="_blank"
-              rel="noopener noreferrer"
-            >
-              {currentFormInfo.responderUri}
-            </a>
-            <div style={{ marginTop: '0.5rem' }}>
-              <button
-                type="button"
-                onClick={() => handleCopyUrl(currentFormInfo.responderUri)}
-              >
-                URLをコピー
-              </button>
-              {copySuccess && (
-                <span style={{ marginLeft: '0.5rem', color: 'green' }}>
-                  コピーしました！
-                </span>
-              )}
+        {/* プロジェクト概要 */}
+        <Card>
+          <CardHeader title="プロジェクト概要" />
+          <dl className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
+            <div>
+              <dt className="text-xs font-medium text-fg-subtle uppercase tracking-wider mb-1">
+                候補日
+              </dt>
+              <dd className="text-fg">{project.candidate_dates.join(', ')}</dd>
             </div>
-            {currentFormInfo.editUri && (
-              <p style={{ marginTop: '0.25rem' }}>
+            <div>
+              <dt className="text-xs font-medium text-fg-subtle uppercase tracking-wider mb-1">
+                1コマの長さ
+              </dt>
+              <dd className="text-fg">{project.slot_minutes} 分</dd>
+            </div>
+            <div>
+              <dt className="text-xs font-medium text-fg-subtle uppercase tracking-wider mb-1">
+                出席番号
+              </dt>
+              <dd className="text-fg break-all">
+                {project.student_numbers.join(', ')}
+              </dd>
+            </div>
+          </dl>
+        </Card>
+
+        {/* Google Form セクション */}
+        <Card>
+          <CardHeader
+            title="候補日程聴取用 Google Form"
+            description="保護者に候補日程を聞くための Google Form を作成・共有します。"
+          />
+
+          {formLoading ? (
+            <p className="text-sm text-fg-muted">読み込み中...</p>
+          ) : currentFormInfo ? (
+            <div className="flex flex-col gap-3">
+              <div className="rounded-md border border-border bg-surface-sunken px-3 py-2">
+                <p className="text-xs font-medium text-fg-subtle mb-1">
+                  保護者向け回答 URL
+                </p>
+                <a
+                  href={currentFormInfo.responderUri}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-sm text-brand-700 hover:text-brand-900 underline break-all"
+                >
+                  {currentFormInfo.responderUri}
+                </a>
+              </div>
+              <div className="flex items-center gap-3">
+                <Button
+                  variant="primary"
+                  size="md"
+                  onClick={() => handleCopyUrl(currentFormInfo.responderUri)}
+                >
+                  URLをコピー
+                </Button>
+                {copySuccess && (
+                  <span className="text-sm text-success-700 font-medium">
+                    ✓ コピーしました！
+                  </span>
+                )}
+              </div>
+              {currentFormInfo.editUri && (
                 <a
                   href={currentFormInfo.editUri}
                   target="_blank"
                   rel="noopener noreferrer"
-                  style={{ fontSize: '0.875rem' }}
+                  className="text-xs text-fg-muted hover:text-brand-700 underline"
                 >
                   Form を編集（教師用）
                 </a>
+              )}
+            </div>
+          ) : (
+            <div className="flex flex-col gap-3">
+              {autoFormTriggeredRef.current && createFormMutation.isPending && (
+                <Alert variant="success">
+                  Google 認証が完了しました。Form を作成しています...
+                </Alert>
+              )}
+              <p className="text-sm text-fg-muted">
+                ボタンを押すと Google Form が自動生成されます。
+                初回はブラウザで Google アカウント認証が必要です。
               </p>
-            )}
+              <div>
+                <Button
+                  variant="primary"
+                  size="md"
+                  onClick={() => createFormMutation.mutate()}
+                  disabled={createFormMutation.isPending}
+                >
+                  {createFormMutation.isPending
+                    ? '作成中...'
+                    : '候補日程聴取用Google Form作成'}
+                </Button>
+              </div>
+              {formError && <Alert variant="error">{formError}</Alert>}
+            </div>
+          )}
+        </Card>
+
+        {/* 受領状況 */}
+        <Card>
+          <CardHeader
+            title="受領状況"
+            description="保護者からの回答状況です。自動で 60 秒ごとに更新されます。"
+            actions={
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => syncMutation.mutate()}
+                disabled={syncMutation.isPending}
+              >
+                {syncMutation.isPending ? '取得中...' : '最新回答を取得'}
+              </Button>
+            }
+          />
+
+          {/* プログレスバー */}
+          {totalStudents > 0 && (
+            <div className="mb-4">
+              <div className="flex items-baseline justify-between mb-1.5">
+                <span className="text-xs font-medium text-fg-subtle uppercase tracking-wider">
+                  受領進捗
+                </span>
+                <span className="text-sm">
+                  <span className="font-semibold text-fg">{receivedCount}</span>
+                  <span className="text-fg-muted"> / {totalStudents} 件</span>
+                  <span className="ml-2 text-fg-subtle">({progressPct}%)</span>
+                </span>
+              </div>
+              <div className="h-2 rounded-full bg-surface-sunken overflow-hidden">
+                <div
+                  className="h-full bg-brand-500 transition-all"
+                  style={{ width: `${progressPct}%` }}
+                />
+              </div>
+            </div>
+          )}
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="rounded-md border border-success-200 bg-success-50 px-3 py-2">
+              <h3 className="text-xs font-semibold text-success-700 uppercase tracking-wider mb-1">
+                受領済み
+              </h3>
+              <p className="text-sm text-fg">
+                {responseStatus && responseStatus.received.length > 0
+                  ? responseStatus.received.join(', ')
+                  : '（なし）'}
+              </p>
+            </div>
+            <div className="rounded-md border border-border bg-surface-sunken px-3 py-2">
+              <h3 className="text-xs font-semibold text-fg-muted uppercase tracking-wider mb-1">
+                未受領
+              </h3>
+              <p className="text-sm text-fg">
+                {responseStatus && responseStatus.pending.length > 0
+                  ? responseStatus.pending.join(', ')
+                  : '（なし）'}
+              </p>
+            </div>
           </div>
-        ) : (
-          <div>
-            {autoFormTriggeredRef.current && createFormMutation.isPending && (
-              <p style={{ color: '#0a5', marginBottom: '0.5rem' }}>
-                Google 認証が完了しました。Form を作成しています...
-              </p>
-            )}
-            <button
-              type="button"
-              onClick={() => createFormMutation.mutate()}
-              disabled={createFormMutation.isPending}
+
+          {syncError && (
+            <Alert variant="error" className="mt-3">
+              {syncError}
+            </Alert>
+          )}
+        </Card>
+
+        {/* ナビゲーション */}
+        <div className="sticky bottom-0 bg-surface-muted py-3 -mx-6 px-6 border-t border-border">
+          {nextActionDisabled && (
+            <p className="text-xs text-fg-muted mb-2">
+              {!formDone
+                ? '上の「候補日程聴取用Google Form作成」を先に行ってください。'
+                : '少なくとも 1 件以上の回答が必要です。「最新回答を取得」を押してください。'}
+            </p>
+          )}
+          <div className="flex flex-wrap gap-2">
+            <Button
+              variant="primary"
+              size="lg"
+              onClick={() => navigate(`/projects/${projectId}/schedule`)}
+              disabled={nextActionDisabled}
             >
-              {createFormMutation.isPending
-                ? '作成中...'
-                : '候補日程聴取用Google Form作成'}
-            </button>
-            {formError && (
-              <p role="alert" style={{ color: 'red', marginTop: '0.5rem' }}>
-                {formError}
-              </p>
-            )}
-          </div>
-        )}
-      </section>
-
-      {/* ===== 受領状況 ===== */}
-      <section style={{ marginBottom: '1.5rem' }}>
-        <h2>受領状況</h2>
-
-        <div style={{ display: 'flex', gap: '2rem', marginBottom: '0.75rem' }}>
-          <div>
-            <h3>受領済み</h3>
-            <p>
-              {responseStatus && responseStatus.received.length > 0
-                ? responseStatus.received.join(', ')
-                : '（なし）'}
-            </p>
-          </div>
-          <div>
-            <h3>未受領</h3>
-            <p>
-              {responseStatus && responseStatus.pending.length > 0
-                ? responseStatus.pending.join(', ')
-                : '（なし）'}
-            </p>
+              面談日程案作成
+            </Button>
+            <Button
+              variant="secondary"
+              size="lg"
+              onClick={() => navigate(`/projects/${projectId}/rules`)}
+            >
+              ルールカスタマイズ
+            </Button>
           </div>
         </div>
-
-        <button
-          type="button"
-          onClick={() => syncMutation.mutate()}
-          disabled={syncMutation.isPending}
-        >
-          {syncMutation.isPending ? '取得中...' : '最新回答を取得'}
-        </button>
-
-        {syncError && (
-          <p role="alert" style={{ color: 'red', marginTop: '0.5rem' }}>
-            {syncError}
-          </p>
-        )}
-      </section>
-
-      {/* ===== ナビゲーション ===== */}
-      <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
-        <button
-          type="button"
-          onClick={() => navigate(`/projects/${projectId}/rules`)}
-        >
-          ルールカスタマイズ
-        </button>
-        <button
-          type="button"
-          onClick={() => navigate(`/projects/${projectId}/schedule`)}
-        >
-          面談日程案作成
-        </button>
-        <button type="button" onClick={() => navigate('/')}>
-          ホームへ戻る
-        </button>
       </div>
-    </div>
+    </AppShell>
   )
 }

@@ -14,6 +14,7 @@
 import { useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { draftsApi } from '../api'
+import { Alert, AppShell, Button, Card } from '../components/ui'
 
 export default function SavedPage() {
   const { projectId } = useParams<{ projectId: string }>()
@@ -70,91 +71,63 @@ export default function SavedPage() {
   }
 
   return (
-    <div style={{ padding: '16px' }}>
-      <h1>保存完了</h1>
-      <p>日程案が保存されました。</p>
+    <AppShell
+      title="保存完了"
+      breadcrumbs={[
+        { label: 'プロジェクト', to: `/projects/${projectId}` },
+        { label: '保存完了' },
+      ]}
+    >
+      <div className="flex flex-col gap-4">
+        <Card>
+          <div className="flex items-start gap-3">
+            <span
+              aria-hidden="true"
+              className="text-2xl text-success-700 leading-none"
+            >
+              ✓
+            </span>
+            <div>
+              <h2 className="text-lg font-semibold text-fg mb-1">
+                日程案が保存されました
+              </h2>
+              <p className="text-sm text-fg-muted">
+                PDF として出力するか、再編集できます。
+              </p>
+            </div>
+          </div>
+        </Card>
 
-      {downloadError != null && (
-        <div
-          role="alert"
-          style={{
-            color: '#b91c1c',
-            backgroundColor: '#fef2f2',
-            border: '1px solid #f87171',
-            borderRadius: '4px',
-            padding: '8px 12px',
-            marginBottom: '12px',
-          }}
-        >
-          エラー: {downloadError}
+        {downloadError != null && (
+          <Alert variant="error" title="PDF出力エラー">
+            {downloadError}
+          </Alert>
+        )}
+        {unlockError != null && (
+          <Alert variant="error" title="再編集エラー">
+            {unlockError}
+          </Alert>
+        )}
+
+        <div className="flex flex-wrap gap-2">
+          <Button
+            variant="primary"
+            size="lg"
+            onClick={handleDownloadPdf}
+            disabled={downloading}
+          >
+            {downloading ? 'ダウンロード中...' : 'PDF出力'}
+          </Button>
+          <Button
+            variant="secondary"
+            size="lg"
+            onClick={handleReEdit}
+            disabled={unlocking}
+          >
+            {unlocking ? '処理中...' : '再編集'}
+          </Button>
         </div>
-      )}
-
-      {unlockError != null && (
-        <div
-          role="alert"
-          style={{
-            color: '#b91c1c',
-            backgroundColor: '#fef2f2',
-            border: '1px solid #f87171',
-            borderRadius: '4px',
-            padding: '8px 12px',
-            marginBottom: '12px',
-          }}
-        >
-          エラー: {unlockError}
-        </div>
-      )}
-
-      <div style={{ display: 'flex', gap: '8px', marginTop: '16px' }}>
-        <button
-          onClick={handleDownloadPdf}
-          disabled={downloading}
-          style={{
-            padding: '10px 24px',
-            fontSize: '1rem',
-            cursor: downloading ? 'not-allowed' : 'pointer',
-            backgroundColor: '#6b7280',
-            color: '#fff',
-            border: 'none',
-            borderRadius: '4px',
-            opacity: downloading ? 0.6 : 1,
-          }}
-        >
-          {downloading ? 'ダウンロード中...' : 'PDF出力'}
-        </button>
-        <button
-          onClick={handleReEdit}
-          disabled={unlocking}
-          style={{
-            padding: '10px 24px',
-            fontSize: '1rem',
-            cursor: unlocking ? 'not-allowed' : 'pointer',
-            backgroundColor: '#2563eb',
-            color: '#fff',
-            border: 'none',
-            borderRadius: '4px',
-            opacity: unlocking ? 0.6 : 1,
-          }}
-        >
-          {unlocking ? '処理中...' : '再編集'}
-        </button>
-        <button
-          type="button"
-          onClick={() => navigate(`/projects/${projectId}`)}
-          style={{
-            padding: '10px 24px',
-            fontSize: '1rem',
-            cursor: 'pointer',
-            backgroundColor: '#fff',
-            color: '#374151',
-            border: '1px solid #d1d5db',
-            borderRadius: '4px',
-          }}
-        >
-          プロジェクトへ戻る
-        </button>
       </div>
-    </div>
+    </AppShell>
   )
 }
