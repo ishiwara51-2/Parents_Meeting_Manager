@@ -90,15 +90,15 @@ export function applyDrop(
 }
 
 /**
- * 既存ドラフトに新規スケジューリング結果をマージする純粋関数。
+ * 固定済み（ロック済み）の配置に新規スケジューリング結果をマージする純粋関数。
  *
  * 方針:
- *  - 既存ドラフトの assignments は固定（再スケジュール対象外）
- *  - 新規スケジュール結果のうち、既存ドラフトのスロットと競合するものは未配置に回す
+ *  - `existing.assignments` は固定（再スケジュール対象外。通常はロック済み配置）
+ *  - 新規スケジュール結果のうち、固定済みのスロットと競合するものは未配置に回す
  *  - unassigned_students / violated_constraints は重複排除のうえ結合
  */
 export function mergeWithExistingDraft(
-  existing: Draft,
+  existing: SchedulingResult,
   added: SchedulingResult,
 ): SchedulingResult {
   const occupied = new Set<string>(
@@ -130,7 +130,7 @@ export function mergeWithExistingDraft(
   ]
   if (conflictedStudents.length > 0) {
     violated.push(
-      `既存ドラフトのスロットと競合したため未配置にした生徒: ${[...conflictedStudents]
+      `ロック済みのスロットと競合したため未配置にした生徒: ${[...conflictedStudents]
         .sort((a, b) => a - b)
         .join(', ')}`,
     )
@@ -305,12 +305,13 @@ interface AvailabilityIssueAlertProps {
 }
 
 /**
- * 既存ドラフトの配置を維持しているが、現在の回答との不整合がある場合に
- * 画面上部へ目立つ警告を表示する。
+ * ロックされた配置を維持しているが、現在の回答との不整合がある場合に
+ * 画面上部へ目立つ警告を表示する（ロックされていない配置は毎回自動で
+ * 再計算されるため、通常はここに現れるのはロック済みのものだけになる）。
  *
  * 想定ケース:
- *  - Form 再送で候補日時が空 になった生徒の配置が残っている
- *  - Form 再送で配置スロットが候補から外された生徒の配置が残っている
+ *  - Form 再送で候補日時が空 になった生徒の配置をロックしたまま残している
+ *  - Form 再送で配置スロットが候補から外された生徒の配置をロックしたまま残している
  */
 function AvailabilityIssueAlert({
   noAvailability,
@@ -334,13 +335,13 @@ function AvailabilityIssueAlert({
       {noAvailability.length > 0 && (
         <p className="text-fg my-1">
           出席番号 <strong className="font-semibold">{noAvailability.join(', ')}</strong>{' '}
-          は最新の回答では候補日時がありません。既存ドラフトの配置を維持していますが、配置先を再検討してください。
+          は最新の回答では候補日時がありません。配置がロックされているため自動では動きません。
         </p>
       )}
       {outOfCurrentAvailability.length > 0 && (
         <p className="text-fg my-1">
           出席番号 <strong className="font-semibold">{outOfCurrentAvailability.join(', ')}</strong>{' '}
-          の現在の配置先は、最新の回答の候補日時に含まれていません。
+          の現在の配置先は、最新の回答の候補日時に含まれていません（配置がロックされているため自動では動きません）。
         </p>
       )}
       <div className="mt-3">
@@ -445,10 +446,20 @@ interface DraggableStudentCardProps {
   id: string
   studentNumber: number
   outOfAvailability: boolean
+  /** ロック中はドラッグで動かせない */
+  locked: boolean
 }
 
-function DraggableStudentCard({ id, studentNumber, outOfAvailability }: DraggableStudentCardProps) {
-  const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({ id })
+function DraggableStudentCard({
+  id,
+  studentNumber,
+  outOfAvailability,
+  locked,
+}: DraggableStudentCardProps) {
+  const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
+    id,
+    disabled: locked,
+  })
 
   return (
     <div
@@ -457,7 +468,7 @@ function DraggableStudentCard({ id, studentNumber, outOfAvailability }: Draggabl
       {...attributes}
       data-testid={`draggable-student-${studentNumber}`}
       style={{
-        cursor: isDragging ? 'grabbing' : 'grab',
+        cursor: locked ? 'not-allowed' : isDragging ? 'grabbing' : 'grab',
         opacity: isDragging ? 0.4 : 1,
         transform:
           transform != null
@@ -487,10 +498,8 @@ interface MatrixCellProps {
   id: string
   studentNumber?: number
   outOfAvailability: boolean
-  /** 既存ドラフトに由来する配置か（true=元から存在、false=新規・更新） */
-  isOriginal: boolean
-  /** 既存ドラフト由来か否かの視覚区別を有効にするか（既存ドラフトが無い場合は false）*/
-  showDistinction: boolean
+  /** ユーザーがロックした配置か（true の場合、自動配置・DnD・編集の対象外）*/
+  locked: boolean
   /** このセルが編集中（入力モード）か */
   isEditing: boolean
   /** このセルの内容が検証エラー対象か（重複 or 名簿外）*/
@@ -498,39 +507,35 @@ interface MatrixCellProps {
   onStartEdit: (cellId: string) => void
   onCommit: (cellId: string, value: number | null) => void
   onCancelEdit: () => void
+  onToggleLock: () => void
 }
 
 function MatrixCell({
   id,
   studentNumber,
   outOfAvailability,
-  isOriginal,
-  showDistinction,
+  locked,
   isEditing,
   hasIssue,
   onStartEdit,
   onCommit,
   onCancelEdit,
+  onToggleLock,
 }: MatrixCellProps) {
-  const { setNodeRef, isOver } = useDroppable({ id })
+  const { setNodeRef, isOver } = useDroppable({ id, disabled: locked })
 
-  // 背景色の優先度:
-  //   ドロップオーバー > 候補外（警告）> 新規/更新（緑）> 既存ドラフト（灰）> なし
+  // 背景色の優先度: ドロップオーバー > 候補外（警告）> ロック済み > なし
   let backgroundColor: string | undefined = undefined
   if (isOver) {
     backgroundColor = '#e0f2fe'
   } else if (studentNumber !== undefined && outOfAvailability) {
     backgroundColor = '#fef3c7'
-  } else if (studentNumber !== undefined && showDistinction) {
-    backgroundColor = isOriginal ? '#f3f4f6' : '#dcfce7'
+  } else if (studentNumber !== undefined && locked) {
+    backgroundColor = '#e5e7eb'
   }
 
   const cellTestId =
-    studentNumber !== undefined && showDistinction
-      ? isOriginal
-        ? `cell-original-${studentNumber}`
-        : `cell-new-${studentNumber}`
-      : undefined
+    studentNumber !== undefined && locked ? `cell-locked-${studentNumber}` : undefined
 
   const cellBorder = hasIssue ? '2px solid #ef4444' : '1px solid #d1d5db'
 
@@ -589,11 +594,13 @@ function MatrixCell({
               id={id}
               studentNumber={studentNumber}
               outOfAvailability={outOfAvailability}
+              locked={locked}
             />
           )}
           <button
             type="button"
             onClick={() => onStartEdit(id)}
+            disabled={locked}
             data-testid={`cell-edit-button-${id}`}
             aria-label={
               studentNumber !== undefined
@@ -603,9 +610,9 @@ function MatrixCell({
             style={{
               padding: '2px 6px',
               fontSize: '0.8rem',
-              cursor: 'pointer',
+              cursor: locked ? 'not-allowed' : 'pointer',
               backgroundColor: '#fff',
-              color: '#6b7280',
+              color: locked ? '#d1d5db' : '#6b7280',
               border: '1px solid #d1d5db',
               borderRadius: '2px',
               minWidth: '24px',
@@ -614,6 +621,33 @@ function MatrixCell({
           >
             {studentNumber !== undefined ? '✎' : '＋'}
           </button>
+          {studentNumber !== undefined && (
+            <button
+              type="button"
+              onClick={onToggleLock}
+              data-testid={`cell-lock-button-${id}`}
+              aria-label={locked ? '配置のロックを解除する' : '配置をロックする'}
+              aria-pressed={locked}
+              title={
+                locked
+                  ? 'ロック中: 自動配置・ドラッグ・編集の対象外です'
+                  : 'ロックするとこの生徒の配置は自動配置で動かなくなります'
+              }
+              style={{
+                padding: '2px 6px',
+                fontSize: '0.8rem',
+                cursor: 'pointer',
+                backgroundColor: locked ? '#fef3c7' : '#fff',
+                color: locked ? '#92400e' : '#6b7280',
+                border: '1px solid #d1d5db',
+                borderRadius: '2px',
+                minWidth: '24px',
+                lineHeight: 1,
+              }}
+            >
+              {locked ? '🔒' : '🔓'}
+            </button>
+          )}
         </div>
       )}
     </td>
@@ -708,72 +742,14 @@ function AvailabilityMatrix({ responses, project }: AvailabilityMatrixProps) {
   )
 }
 
-// --- 生徒コメント一覧（読み取り専用、Form 回答の自由記述欄）---
-
-interface StudentCommentsProps {
-  responses: ApiResponse[]
-}
-
-/**
- * 出席番号ごとにコメント（自由記述欄）を一覧表示する。コメント未記入の
- * 回答は表示しない。JSX のテキスト補間は React が自動でエスケープするため
- * （dangerouslySetInnerHTML は使用しない）、ここでの表示自体に XSS の
- * リスクは無い。文字数制限・制御文字の除去はサーバ側パース時点
- * （app.services.polling._sanitize_comment）で行われた値を表示するのみ。
- */
-function StudentComments({ responses }: StudentCommentsProps) {
-  const commented = responses
-    .filter((r) => r.comment != null && r.comment.trim() !== '')
-    .sort((a, b) => a.student_number - b.student_number)
-
-  if (commented.length === 0) {
-    return (
-      <p style={{ color: '#6b7280', fontSize: '0.9rem' }}>
-        コメントはありません。
-      </p>
-    )
-  }
-
-  return (
-    <ul
-      data-testid="student-comments"
-      style={{ listStyle: 'none', margin: 0, padding: 0 }}
-    >
-      {commented.map((r) => (
-        <li
-          key={r.student_number}
-          style={{
-            border: '1px solid #d1d5db',
-            borderRadius: '4px',
-            padding: '8px 12px',
-            marginBottom: '8px',
-          }}
-        >
-          <span style={{ fontWeight: 600 }}>出席番号 {r.student_number}</span>
-          <p
-            style={{
-              margin: '4px 0 0',
-              overflowWrap: 'break-word',
-            }}
-          >
-            {r.comment}
-          </p>
-        </li>
-      ))}
-    </ul>
-  )
-}
-
 // --- マトリクス表示 ---
 
 interface ScheduleMatrixProps {
   assignments: Assignment[]
   project: Project | null
   outOfAvailCells: Set<string>
-  /** "student|date|HH:MM" 形式の、既存ドラフト由来の配置キー集合 */
-  originalDraftKeys: Set<string>
-  /** 既存ドラフト由来か否かの視覚区別を行うか（既存ドラフトが無い初回作成時は false）*/
-  showOriginalDistinction: boolean
+  /** ユーザーがロックした出席番号の集合 */
+  lockedStudents: Set<number>
   /** 編集中セルの ID（"date|HH:MM"）。null なら編集中なし */
   editingCellId: string | null
   /** "date|HH:MM" 形式の、検証エラー（重複/名簿外）対象セル集合 */
@@ -781,19 +757,24 @@ interface ScheduleMatrixProps {
   onStartEdit: (cellId: string) => void
   onCommitEdit: (cellId: string, value: number | null) => void
   onCancelEdit: () => void
+  onToggleCellLock: (studentNumber: number) => void
+  onToggleRowLock: (startHHMM: string) => void
+  onToggleColumnLock: (date: string) => void
 }
 
 function ScheduleMatrix({
   assignments,
   project,
   outOfAvailCells,
-  originalDraftKeys,
-  showOriginalDistinction,
+  lockedStudents,
   editingCellId,
   issueCells,
   onStartEdit,
   onCommitEdit,
   onCancelEdit,
+  onToggleCellLock,
+  onToggleRowLock,
+  onToggleColumnLock,
 }: ScheduleMatrixProps) {
   // グリッド軸の構築: プロジェクト情報があればそちらを優先（空きセルも表示する）
   const dates: string[] = project
@@ -844,90 +825,113 @@ function ScheduleMatrix({
     whiteSpace: 'nowrap',
   }
 
+  // ロックボタン共通スタイル（ヘッダの一括ロック用）
+  const headerLockButtonStyle = (allLocked: boolean): React.CSSProperties => ({
+    marginLeft: '6px',
+    padding: '1px 5px',
+    fontSize: '0.75rem',
+    cursor: 'pointer',
+    backgroundColor: allLocked ? '#fef3c7' : '#fff',
+    color: allLocked ? '#92400e' : '#6b7280',
+    border: '1px solid #d1d5db',
+    borderRadius: '2px',
+    lineHeight: 1,
+  })
+
   return (
     <div style={{ overflowX: 'auto' }}>
-      {showOriginalDistinction && (
-        <div
-          data-testid="schedule-matrix-legend"
-          style={{
-            display: 'flex',
-            gap: '16px',
-            marginBottom: '8px',
-            fontSize: '0.875rem',
-            color: '#374151',
-          }}
-        >
-          <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
-            <span
-              aria-hidden="true"
-              style={{
-                display: 'inline-block',
-                width: '14px',
-                height: '14px',
-                backgroundColor: '#f3f4f6',
-                border: '1px solid #d1d5db',
-              }}
-            />
-            既存ドラフトの配置
-          </span>
-          <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
-            <span
-              aria-hidden="true"
-              style={{
-                display: 'inline-block',
-                width: '14px',
-                height: '14px',
-                backgroundColor: '#dcfce7',
-                border: '1px solid #d1d5db',
-              }}
-            />
-            新規 / 更新された配置
-          </span>
-        </div>
-      )}
       <table style={{ borderCollapse: 'collapse', width: '100%' }}>
         <thead>
           <tr>
             <th style={thStyle}>時間枠</th>
-            {dates.map((date) => (
-              <th key={date} style={thStyle}>
-                {date}
-              </th>
-            ))}
+            {dates.map((date) => {
+              const colStudents = assignments
+                .filter((a) => a.date === date)
+                .map((a) => a.student_number)
+              const colAllLocked =
+                colStudents.length > 0 &&
+                colStudents.every((sn) => lockedStudents.has(sn))
+              return (
+                <th key={date} style={thStyle}>
+                  {date}
+                  {colStudents.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => onToggleColumnLock(date)}
+                      data-testid={`column-lock-button-${date}`}
+                      aria-label={
+                        colAllLocked
+                          ? `${date} の一括ロックを解除する`
+                          : `${date} を一括ロックする`
+                      }
+                      aria-pressed={colAllLocked}
+                      title="この日付の配置を一括ロック/解除します"
+                      style={headerLockButtonStyle(colAllLocked)}
+                    >
+                      {colAllLocked ? '🔒' : '🔓'}
+                    </button>
+                  )}
+                </th>
+              )
+            })}
           </tr>
         </thead>
         <tbody>
-          {timeSlots.map((slot) => (
-            <tr key={slot.start}>
-              <td style={labelCellStyle}>
-                {slot.start} - {slot.end}
-              </td>
-              {dates.map((date) => {
-                const cellKey = `${date}|${slot.start}`
-                const cell = cellMap.get(cellKey)
-                const isOriginal =
-                  cell != null &&
-                  originalDraftKeys.has(
-                    `${cell.studentNumber}|${date}|${slot.start}`,
+          {timeSlots.map((slot) => {
+            const rowStudents = assignments
+              .filter((a) => toHHMM(a.start) === slot.start)
+              .map((a) => a.student_number)
+            const rowAllLocked =
+              rowStudents.length > 0 &&
+              rowStudents.every((sn) => lockedStudents.has(sn))
+            return (
+              <tr key={slot.start}>
+                <td style={labelCellStyle}>
+                  {slot.start} - {slot.end}
+                  {rowStudents.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => onToggleRowLock(slot.start)}
+                      data-testid={`row-lock-button-${slot.start}`}
+                      aria-label={
+                        rowAllLocked
+                          ? `${slot.start} の一括ロックを解除する`
+                          : `${slot.start} を一括ロックする`
+                      }
+                      aria-pressed={rowAllLocked}
+                      title="この時間枠の配置を一括ロック/解除します"
+                      style={headerLockButtonStyle(rowAllLocked)}
+                    >
+                      {rowAllLocked ? '🔒' : '🔓'}
+                    </button>
+                  )}
+                </td>
+                {dates.map((date) => {
+                  const cellKey = `${date}|${slot.start}`
+                  const cell = cellMap.get(cellKey)
+                  const locked =
+                    cell != null && lockedStudents.has(cell.studentNumber)
+                  return (
+                    <MatrixCell
+                      key={date}
+                      id={cellKey}
+                      studentNumber={cell?.studentNumber}
+                      outOfAvailability={outOfAvailCells.has(cellKey)}
+                      locked={locked}
+                      isEditing={editingCellId === cellKey}
+                      hasIssue={issueCells.has(cellKey)}
+                      onStartEdit={onStartEdit}
+                      onCommit={onCommitEdit}
+                      onCancelEdit={onCancelEdit}
+                      onToggleLock={() => {
+                        if (cell != null) onToggleCellLock(cell.studentNumber)
+                      }}
+                    />
                   )
-                return (
-                  <MatrixCell
-                    key={date}
-                    id={cellKey}
-                    studentNumber={cell?.studentNumber}
-                    outOfAvailability={outOfAvailCells.has(cellKey)}
-                    isOriginal={isOriginal}
-                    showDistinction={showOriginalDistinction}
-                    isEditing={editingCellId === cellKey}
-                    hasIssue={issueCells.has(cellKey)}
-                    onStartEdit={onStartEdit}
-                    onCommit={onCommitEdit}
-                    onCancelEdit={onCancelEdit}
-                  />
-                )
-              })}
-            </tr>
-          ))}
+                })}
+              </tr>
+            )
+          })}
         </tbody>
       </table>
     </div>
@@ -969,14 +973,10 @@ export default function SchedulePage() {
   // 出席番号リストを保持する。null = 確認不要 or 確認済み。
   const [pendingExtras, setPendingExtras] = useState<number[] | null>(null)
 
-  // 既存ドラフト（あれば）。新規スケジューリングはこれにマージする。
-  const [existingDraft, setExistingDraft] = useState<Draft | null>(null)
-
-  // 既存ドラフト由来の配置キー "student|date|HH:MM" の集合。
-  // DnD やリオーガナイズで配置が変わったらキーは外れる（=「新規/更新」扱い）。
-  const [originalDraftKeys, setOriginalDraftKeys] = useState<Set<string>>(
-    new Set(),
-  )
+  // ユーザーがロックした出席番号の集合。
+  // ロックされた生徒の配置は自動配置（初回ロード時・再配置時いずれも）の対象外
+  // となり、常に固定される。ロックされていない生徒は毎回自動で再計算される。
+  const [lockedStudents, setLockedStudents] = useState<Set<number>>(new Set())
 
   // 編集中のセル ID（"date|HH:MM"）。null なら編集中なし。
   const [editingCellId, setEditingCellId] = useState<string | null>(null)
@@ -993,58 +993,60 @@ export default function SchedulePage() {
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
   )
 
-  // 既存ドラフト + 新規スケジュール対象の状態に応じてスケジューリングを実行する。
-  // existingArg / draftStudentsArg を引数で受けるのは初回ロード時の useEffect から
+  // ロックされていない生徒のみを対象に自動配置を行い、ロック済みの配置と
+  // マージする。ロックは「前回保存済みだったから」ではなく、ユーザーが
+  // ロックボタンで明示的に指定した場合にのみ適用される。そのため、
+  // ロック対象以外の生徒は初回ロード時・再配置時いずれも常に再計算される。
+  //
+  // currentAssignments を引数で受けるのは初回ロード時の useEffect から
   // 同期的に呼び出される（=state がまだ反映されていない）場合に対応するため。
-  function runScheduleAndMerge(
-    userExcluded: number[],
+  function runSchedule(
+    lockedSet: Set<number>,
     respList: ApiResponse[],
-    existingArg: Draft | null,
-    draftStudentsArg: Set<number>,
+    currentAssignments: Assignment[],
+    extraExcluded: number[] = [],
   ) {
     if (!projectId) return
 
-    // 既存ドラフトに含まれている出席番号 + ユーザーが「除外」を選んだ名簿外番号
-    const toExclude = new Set<number>([...draftStudentsArg, ...userExcluded])
-    const newToSchedule = respList.filter(
-      (r) => !toExclude.has(r.student_number),
+    const extraExcludedSet = new Set(extraExcluded)
+    const lockedAssignments = currentAssignments.filter((a) =>
+      lockedSet.has(a.student_number),
+    )
+    const toSchedule = respList.filter(
+      (r) =>
+        !lockedSet.has(r.student_number) &&
+        !extraExcludedSet.has(r.student_number),
     )
 
-    // 新規にスケジューリングすべき生徒がいなければ、API は呼ばずに既存ドラフトをそのまま表示
-    if (newToSchedule.length === 0) {
-      if (existingArg) {
-        const stub: SchedulingResult = {
-          assignments: existingArg.assignments,
-          unassigned_students: existingArg.unassigned_students,
-          violated_constraints: existingArg.violated_constraints,
-        }
-        setResult(stub)
-        setLocalAssignments(stub.assignments)
-      } else {
-        const empty: SchedulingResult = {
-          assignments: [],
-          unassigned_students: [],
-          violated_constraints: [],
-        }
-        setResult(empty)
-        setLocalAssignments([])
-      }
+    // 自動配置の対象がロック済みのみなら、API は呼ばずロック済み配置だけを表示
+    if (toSchedule.length === 0) {
+      setResult({
+        assignments: lockedAssignments,
+        unassigned_students: [],
+        violated_constraints: [],
+      })
+      setLocalAssignments(lockedAssignments)
       setLoading(false)
       return
     }
 
     setLoading(true)
     setError(null)
-    const excludedList = Array.from(toExclude)
+    const excludedList = Array.from(
+      new Set<number>([...lockedSet, ...extraExcludedSet]),
+    )
     const promise =
       excludedList.length > 0
         ? scheduleApi.run(projectId, { excluded_students: excludedList })
         : scheduleApi.run(projectId)
     promise
       .then((scheduleResult) => {
-        const merged = existingArg
-          ? mergeWithExistingDraft(existingArg, scheduleResult)
-          : scheduleResult
+        const base: SchedulingResult = {
+          assignments: lockedAssignments,
+          unassigned_students: [],
+          violated_constraints: [],
+        }
+        const merged = mergeWithExistingDraft(base, scheduleResult)
         setResult(merged)
         setLocalAssignments(merged.assignments)
         setLoading(false)
@@ -1055,9 +1057,54 @@ export default function SchedulePage() {
       })
   }
 
+  function toggleCellLock(studentNumber: number) {
+    setLockedStudents((prev) => {
+      const next = new Set(prev)
+      if (next.has(studentNumber)) next.delete(studentNumber)
+      else next.add(studentNumber)
+      return next
+    })
+  }
+
+  function toggleRowLock(startHHMM: string) {
+    const studentsInRow = localAssignments
+      .filter((a) => toHHMM(a.start) === startHHMM)
+      .map((a) => a.student_number)
+    if (studentsInRow.length === 0) return
+    const allLocked = studentsInRow.every((sn) => lockedStudents.has(sn))
+    setLockedStudents((prev) => {
+      const next = new Set(prev)
+      for (const sn of studentsInRow) {
+        if (allLocked) next.delete(sn)
+        else next.add(sn)
+      }
+      return next
+    })
+  }
+
+  function toggleColumnLock(date: string) {
+    const studentsInCol = localAssignments
+      .filter((a) => a.date === date)
+      .map((a) => a.student_number)
+    if (studentsInCol.length === 0) return
+    const allLocked = studentsInCol.every((sn) => lockedStudents.has(sn))
+    setLockedStudents((prev) => {
+      const next = new Set(prev)
+      for (const sn of studentsInCol) {
+        if (allLocked) next.delete(sn)
+        else next.add(sn)
+      }
+      return next
+    })
+  }
+
   // 初回データ取得: project / responses / 既存ドラフト（あれば）を並列ロードし、
   // - 名簿外回答（既存ドラフトに含まれないもの）があれば確認ダイアログ
   // - そうでなければ即スケジューリング
+  //
+  // ロック状態は既存ドラフトの locked_students から復元する。それ以外の
+  // （ロックされていない）配置は、既存ドラフトに含まれていたかどうかに
+  // 関わらず、毎回自動配置で再計算される。
   useEffect(() => {
     if (!projectId) return
     setLoading(true)
@@ -1078,16 +1125,11 @@ export default function SchedulePage() {
         setProject(proj)
         const respList = resps ?? []
         setResponses(respList)
-        setExistingDraft(draft)
-        setOriginalDraftKeys(
-          new Set(
-            draft
-              ? draft.assignments.map(
-                  (a) => `${a.student_number}|${a.date}|${toHHMM(a.start)}`,
-                )
-              : [],
-          ),
-        )
+
+        const initialLocked = new Set<number>(draft?.locked_students ?? [])
+        setLockedStudents(initialLocked)
+        const initialAssignments = draft?.assignments ?? []
+        setLocalAssignments(initialAssignments)
 
         const roster = new Set(proj.student_numbers)
         const draftStudents = new Set<number>(
@@ -1115,7 +1157,7 @@ export default function SchedulePage() {
         ).sort((a, b) => a - b)
 
         if (extras.length === 0) {
-          runScheduleAndMerge([], respList, draft, draftStudents)
+          runSchedule(initialLocked, respList, initialAssignments, [])
         } else {
           setPendingExtras(extras)
           setLoading(false)
@@ -1125,59 +1167,20 @@ export default function SchedulePage() {
         setError(err.message ?? 'データの取得に失敗しました')
         setLoading(false)
       })
-    // runScheduleAndMerge は projectId のみに依存
+    // runSchedule は projectId のみに依存
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectId])
 
-  // 警告対象（候補日時ゼロ・配置スロットが現在の候補外）の生徒のみを対象として
-  // 再スケジューリングを実行する。それ以外の生徒の現在配置は固定し、
-  // mergeWithExistingDraft で衝突したものは未配置に回す。
+  // 警告対象（候補日時ゼロ・配置スロットが現在の候補外）の生徒をロック解除した
+  // うえで再計算する。ロックされている生徒は「意図的に固定」されているため、
+  // 警告が出ていても自動では動かさない設計であり、動かすには先にロックを
+  // 解除する必要がある（このボタンはその解除操作を兼ねる）。
   function handleReorganizeWarningStudents(warningStudents: number[]) {
-    if (!projectId || !result) return
     if (warningStudents.length === 0) return
-
-    const warningSet = new Set(warningStudents)
-    const fixed = localAssignments.filter(
-      (a) => !warningSet.has(a.student_number),
-    )
-
-    // 警告対象以外は除外（=警告対象のみスケジューラに渡す）
-    const excluded = Array.from(
-      new Set(
-        responses
-          .map((r) => r.student_number)
-          .filter((sn) => !warningSet.has(sn)),
-      ),
-    )
-
-    const syntheticExisting: Draft = {
-      project_id: projectId,
-      saved_at: new Date().toISOString(),
-      locked: false,
-      assignments: fixed,
-      unassigned_students: result.unassigned_students.filter(
-        (sn) => !warningSet.has(sn),
-      ),
-      violated_constraints: [],
-    }
-
-    setLoading(true)
-    setError(null)
-    const promise =
-      excluded.length > 0
-        ? scheduleApi.run(projectId, { excluded_students: excluded })
-        : scheduleApi.run(projectId)
-    promise
-      .then((scheduleResult) => {
-        const merged = mergeWithExistingDraft(syntheticExisting, scheduleResult)
-        setResult(merged)
-        setLocalAssignments(merged.assignments)
-        setLoading(false)
-      })
-      .catch((err: Error) => {
-        setError(err.message ?? '再スケジューリングに失敗しました')
-        setLoading(false)
-      })
+    const nextLocked = new Set(lockedStudents)
+    for (const sn of warningStudents) nextLocked.delete(sn)
+    setLockedStudents(nextLocked)
+    runSchedule(nextLocked, responses, localAssignments, [])
   }
 
   function handleStartEdit(cellId: string) {
@@ -1189,6 +1192,8 @@ export default function SchedulePage() {
   }
 
   // セルの編集を確定する。value=null は当該セルの配置を削除。
+  // ロック中のセルは編集不可（UI 上も編集ボタンを無効化しているが、念のため
+  // ここでも確認する）。
   function handleCommitEdit(cellId: string, value: number | null) {
     setEditingCellId(null)
     if (!project) return
@@ -1198,6 +1203,9 @@ export default function SchedulePage() {
       const idx = prev.findIndex(
         (a) => a.date === date && toHHMM(a.start) === startHHMM,
       )
+      if (idx !== -1 && lockedStudents.has(prev[idx].student_number)) {
+        return prev
+      }
       if (value === null) {
         if (idx === -1) return prev
         return prev.filter((_, i) => i !== idx)
@@ -1219,15 +1227,7 @@ export default function SchedulePage() {
 
   // pendingExtras 確認後にユーザーが選んだ除外リストでスケジュールを継続する
   function continueAfterConfirm(userExcluded: number[]) {
-    const draftStudents = new Set<number>(
-      existingDraft
-        ? [
-            ...existingDraft.assignments.map((a) => a.student_number),
-            ...existingDraft.unassigned_students,
-          ]
-        : [],
-    )
-    runScheduleAndMerge(userExcluded, responses, existingDraft, draftStudents)
+    runSchedule(lockedStudents, responses, localAssignments, userExcluded)
   }
 
   // 手動入力を含む現在の配置に対する検証エラー（重複・名簿外）
@@ -1320,6 +1320,7 @@ export default function SchedulePage() {
         (sn) => !placedSet.has(sn),
       ),
       violated_constraints: result.violated_constraints,
+      locked_students: Array.from(lockedStudents),
     }
     try {
       await draftsApi.save(projectId, payload)
@@ -1492,13 +1493,15 @@ export default function SchedulePage() {
             assignments={localAssignments}
             project={project}
             outOfAvailCells={outOfAvailCells}
-            originalDraftKeys={originalDraftKeys}
-            showOriginalDistinction={originalDraftKeys.size > 0}
+            lockedStudents={lockedStudents}
             editingCellId={editingCellId}
             issueCells={issueCells}
             onStartEdit={handleStartEdit}
             onCommitEdit={handleCommitEdit}
             onCancelEdit={handleCancelEdit}
+            onToggleCellLock={toggleCellLock}
+            onToggleRowLock={toggleRowLock}
+            onToggleColumnLock={toggleColumnLock}
           />
         </DndContext>
       )}
@@ -1512,19 +1515,6 @@ export default function SchedulePage() {
               description="各枠を「可」と回答した出席番号を列挙しています。"
             />
             <AvailabilityMatrix responses={responses} project={project} />
-          </Card>
-        </section>
-      )}
-
-      {/* Google Form 自由記述コメント一覧（参考表示・読み取り専用）*/}
-      {result != null && (
-        <section className="mt-6">
-          <Card>
-            <CardHeader
-              title="生徒コメント一覧"
-              description="Form の自由記述欄（任意、最大100文字）に記入された内容です。"
-            />
-            <StudentComments responses={responses} />
           </Card>
         </section>
       )}

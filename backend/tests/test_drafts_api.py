@@ -60,6 +60,7 @@ def _draft_save_payload(
     assignments: list[dict] | None = None,
     unassigned_students: list[int] | None = None,
     violated_constraints: list[str] | None = None,
+    locked_students: list[int] | None = None,
 ) -> dict:
     """ドラフト保存リクエストペイロード。"""
     return {
@@ -69,6 +70,7 @@ def _draft_save_payload(
         ],
         "unassigned_students": unassigned_students or [3],
         "violated_constraints": violated_constraints or [],
+        "locked_students": locked_students if locked_students is not None else [],
     }
 
 
@@ -125,6 +127,28 @@ class TestSaveDraft:
         ]
         assert body["unassigned_students"] == [5]
         assert body["violated_constraints"] == ["生徒5は候補日時がありません"]
+
+    def test_save_draft_persists_locked_students(
+        self, client: TestClient, project_id: str
+    ) -> None:
+        """locked_students が保存・往復で保持される。"""
+        payload = _draft_save_payload(locked_students=[1, 2])
+        resp = client.post(f"/api/projects/{project_id}/drafts", json=payload)
+        assert resp.status_code == 201
+        assert resp.json()["locked_students"] == [1, 2]
+
+        latest = client.get(f"/api/projects/{project_id}/drafts/latest")
+        assert latest.json()["locked_students"] == [1, 2]
+
+    def test_save_draft_locked_students_defaults_to_empty(
+        self, client: TestClient, project_id: str
+    ) -> None:
+        """locked_students を省略した場合は空リストになる。"""
+        payload = _draft_save_payload()
+        del payload["locked_students"]
+        resp = client.post(f"/api/projects/{project_id}/drafts", json=payload)
+        assert resp.status_code == 201
+        assert resp.json()["locked_students"] == []
 
     def test_save_draft_transitions_status_to_draft_saved(
         self, client: TestClient, project_id: str

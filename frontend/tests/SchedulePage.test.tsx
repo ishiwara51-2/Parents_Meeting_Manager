@@ -342,7 +342,12 @@ describe('Phase 4.4c: 保存ボタン', () => {
   })
 })
 
-// ===== 既存ドラフトとのマージ動作 =====
+// ===== 既存ドラフトとロックの挙動 =====
+//
+// ロックは「前回保存済みであること」ではなく「ユーザーがロックボタンで
+// 指定したこと」によって決まる（draft.locked_students）。ロックされて
+// いない配置は、既存ドラフトに含まれていたかどうかに関わらず、画面を
+// 開くたびに毎回自動配置が再計算される。
 
 const EXISTING_DRAFT = {
   project_id: PROJECT_ID,
@@ -355,27 +360,58 @@ const EXISTING_DRAFT = {
   ],
   unassigned_students: [],
   violated_constraints: [],
+  locked_students: [],
 }
 
-describe('既存ドラフトとのマージ', () => {
+describe('既存ドラフトとロックの挙動', () => {
   beforeEach(() => {
     vi.resetAllMocks()
     vi.mocked(api.projectsApi.get).mockResolvedValue(MOCK_PROJECT)
     vi.mocked(api.responsesApi.list).mockResolvedValue(MOCK_RESPONSES)
+    vi.mocked(api.scheduleApi.run).mockResolvedValue({
+      assignments: [],
+      unassigned_students: [],
+      violated_constraints: [],
+    })
   })
 
-  it('既存ドラフトに全員いて新規応答がない場合は scheduleApi.run を呼ばずに既存を表示', async () => {
-    vi.mocked(api.draftsApi.getLatest).mockResolvedValue(EXISTING_DRAFT)
+  it('ロック済みの出席番号のみの場合は scheduleApi.run を呼ばずにロック済みの配置を表示', async () => {
+    vi.mocked(api.draftsApi.getLatest).mockResolvedValue({
+      ...EXISTING_DRAFT,
+      locked_students: [1, 2, 3],
+    })
     renderSchedulePage()
     await waitFor(() => {
       expect(screen.getByRole('button', { name: '保存' })).toBeInTheDocument()
     })
-    // 新規スケジュール対象がいないので schedule API は呼ばれない
+    // ロック済み以外に自動配置すべき対象がいないので schedule API は呼ばれない
     expect(vi.mocked(api.scheduleApi.run)).not.toHaveBeenCalled()
-    // 既存ドラフトの生徒がマトリクスに表示される
+    // ロック済みの生徒がマトリクスに表示される
     expect(screen.getByTestId('draggable-student-1')).toBeInTheDocument()
     expect(screen.getByTestId('draggable-student-2')).toBeInTheDocument()
     expect(screen.getByTestId('draggable-student-3')).toBeInTheDocument()
+  })
+
+  it('ロックされていない出席番号は既存ドラフトに含まれていても毎回再計算される', async () => {
+    // locked_students が空の既存ドラフト → 全員が自動配置の対象
+    vi.mocked(api.draftsApi.getLatest).mockResolvedValue(EXISTING_DRAFT)
+    renderSchedulePage()
+    await waitFor(() => {
+      expect(vi.mocked(api.scheduleApi.run)).toHaveBeenCalledWith(PROJECT_ID)
+    })
+  })
+
+  it('ロック済みの出席番号は excluded_students としてスケジュールAPIに渡される', async () => {
+    vi.mocked(api.draftsApi.getLatest).mockResolvedValue({
+      ...EXISTING_DRAFT,
+      locked_students: [1],
+    })
+    renderSchedulePage()
+    await waitFor(() => {
+      expect(vi.mocked(api.scheduleApi.run)).toHaveBeenCalled()
+    })
+    const [, req] = vi.mocked(api.scheduleApi.run).mock.calls[0]
+    expect(req).toEqual({ excluded_students: [1] })
   })
 
   it('保存時に 409 が返ったらアンロックして再保存する', async () => {
@@ -413,11 +449,31 @@ describe('既存ドラフトとのマージ', () => {
     expect(vi.mocked(api.draftsApi.save)).toHaveBeenCalledTimes(2)
   })
 
-  it('既存ドラフトの生徒の最新回答が空になっていたら警告を表示する', async () => {
-    // 生徒 1, 2, 3 が既存ドラフトに配置済み
+  it('保存時に locked_students が含まれる', async () => {
+    vi.mocked(api.draftsApi.getLatest).mockResolvedValue({
+      ...EXISTING_DRAFT,
+      locked_students: [2, 3],
+    })
+    vi.mocked(api.draftsApi.save).mockResolvedValue(EXISTING_DRAFT)
+    renderSchedulePage()
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: '保存' })).toBeInTheDocument()
+    })
+    fireEvent.click(screen.getByRole('button', { name: '保存' }))
+    await waitFor(() => {
+      expect(vi.mocked(api.draftsApi.save)).toHaveBeenCalledWith(
+        PROJECT_ID,
+        expect.objectContaining({
+          locked_students: expect.arrayContaining([2, 3]),
+        }),
+      )
+    })
+  })
+
+  it('ロック中の生徒の最新回答が空になっていたら警告を表示する', async () => {
+    // 生徒 1, 2, 3 をロック済みでドラフトから読み込む
     // 生徒 1 の最新回答が空（候補日時ゼロ）になっている
     const responsesWithEmpty1 = [
-      // 生徒 1 の最新応答が空
       {
         project_id: PROJECT_ID,
         student_number: 1,
@@ -425,12 +481,14 @@ describe('既存ドラフトとのマージ', () => {
         google_form_response_id: 'r1-new',
         availability: [],
       },
-      // 生徒 2, 3 は前回通り
       MOCK_RESPONSES[1],
       MOCK_RESPONSES[2],
     ]
     vi.mocked(api.responsesApi.list).mockResolvedValue(responsesWithEmpty1)
-    vi.mocked(api.draftsApi.getLatest).mockResolvedValue(EXISTING_DRAFT)
+    vi.mocked(api.draftsApi.getLatest).mockResolvedValue({
+      ...EXISTING_DRAFT,
+      locked_students: [1, 2, 3],
+    })
 
     renderSchedulePage()
     await waitFor(() => {
@@ -439,6 +497,41 @@ describe('既存ドラフトとのマージ', () => {
     const alert = screen.getByTestId('availability-issue-alert')
     expect(alert).toHaveTextContent(/候補日時がありません/)
     expect(alert).toHaveTextContent(/\b1\b/)
+  })
+
+  it('ロックされていない生徒の回答が空でも、毎回再計算されるため警告は出ない', async () => {
+    // 生徒 1 の最新回答が空だが、誰もロックしていない場合は
+    // 自動配置で未配置（unassigned）として扱われるため、
+    // 「配置されたまま矛盾している」警告の対象にはならない
+    const responsesWithEmpty1 = [
+      {
+        project_id: PROJECT_ID,
+        student_number: 1,
+        submitted_at: '2026-07-02T00:00:00+09:00',
+        google_form_response_id: 'r1-new',
+        availability: [],
+      },
+      MOCK_RESPONSES[1],
+      MOCK_RESPONSES[2],
+    ]
+    vi.mocked(api.responsesApi.list).mockResolvedValue(responsesWithEmpty1)
+    vi.mocked(api.draftsApi.getLatest).mockResolvedValue(EXISTING_DRAFT)
+    vi.mocked(api.scheduleApi.run).mockResolvedValue({
+      assignments: [
+        { student_number: 2, date: '2026-07-15', start: '16:20:00', end: '16:40:00' },
+        { student_number: 3, date: '2026-07-16', start: '16:00:00', end: '16:20:00' },
+      ],
+      unassigned_students: [1],
+      violated_constraints: [],
+    })
+
+    renderSchedulePage()
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: '保存' })).toBeInTheDocument()
+    })
+    expect(
+      screen.queryByTestId('availability-issue-alert'),
+    ).not.toBeInTheDocument()
   })
 
   it('警告がある場合、「警告対象を再配置する」ボタンが表示される', async () => {
@@ -454,7 +547,10 @@ describe('既存ドラフトとのマージ', () => {
       MOCK_RESPONSES[2],
     ]
     vi.mocked(api.responsesApi.list).mockResolvedValue(responsesWithEmpty1)
-    vi.mocked(api.draftsApi.getLatest).mockResolvedValue(EXISTING_DRAFT)
+    vi.mocked(api.draftsApi.getLatest).mockResolvedValue({
+      ...EXISTING_DRAFT,
+      locked_students: [1, 2, 3],
+    })
 
     renderSchedulePage()
     await waitFor(() => {
@@ -465,7 +561,10 @@ describe('既存ドラフトとのマージ', () => {
   })
 
   it('警告がない場合、「警告対象を再配置する」ボタンは表示されない', async () => {
-    vi.mocked(api.draftsApi.getLatest).mockResolvedValue(EXISTING_DRAFT)
+    vi.mocked(api.draftsApi.getLatest).mockResolvedValue({
+      ...EXISTING_DRAFT,
+      locked_students: [1, 2, 3],
+    })
     renderSchedulePage()
     await waitFor(() => {
       expect(screen.getByRole('button', { name: '保存' })).toBeInTheDocument()
@@ -475,8 +574,8 @@ describe('既存ドラフトとのマージ', () => {
     ).not.toBeInTheDocument()
   })
 
-  it('「警告対象を再配置する」ボタン押下で警告対象のみを対象にスケジュールが再実行される', async () => {
-    // 生徒 1 の最新回答が空 → 警告対象
+  it('「警告対象を再配置する」ボタン押下で警告対象のロックを解除し再計算する', async () => {
+    // 生徒 1 の最新回答が空 → 警告対象（1,2,3 は全員ロック済み）
     const responsesWithEmpty1 = [
       {
         project_id: PROJECT_ID,
@@ -489,7 +588,10 @@ describe('既存ドラフトとのマージ', () => {
       MOCK_RESPONSES[2],
     ]
     vi.mocked(api.responsesApi.list).mockResolvedValue(responsesWithEmpty1)
-    vi.mocked(api.draftsApi.getLatest).mockResolvedValue(EXISTING_DRAFT)
+    vi.mocked(api.draftsApi.getLatest).mockResolvedValue({
+      ...EXISTING_DRAFT,
+      locked_students: [1, 2, 3],
+    })
     vi.mocked(api.scheduleApi.run).mockResolvedValue({
       assignments: [],
       unassigned_students: [1],
@@ -502,6 +604,9 @@ describe('既存ドラフトとのマージ', () => {
         screen.getByTestId('reorganize-warning-students-button'),
       ).toBeInTheDocument()
     })
+    // ロード時点では全員ロック済みのため scheduleApi.run は未呼び出し
+    expect(vi.mocked(api.scheduleApi.run)).not.toHaveBeenCalled()
+
     fireEvent.click(
       screen.getByTestId('reorganize-warning-students-button'),
     )
@@ -509,7 +614,8 @@ describe('既存ドラフトとのマージ', () => {
     await waitFor(() => {
       expect(vi.mocked(api.scheduleApi.run)).toHaveBeenCalled()
     })
-    // 警告対象（生徒 1）以外（生徒 2, 3）が excluded_students に含まれる
+    // 警告対象（生徒 1）はロック解除され再計算対象になる
+    // それ以外（生徒 2, 3）は引き続きロックされ excluded_students に含まれる
     const [, req] = vi.mocked(api.scheduleApi.run).mock.calls[0]
     expect(req).toEqual({
       excluded_students: expect.arrayContaining([2, 3]),
@@ -519,43 +625,64 @@ describe('既存ドラフトとのマージ', () => {
     )
   })
 
-  it('既存ドラフト由来の配置と新規配置を視覚的に区別する（data-testid）', async () => {
-    // 既存ドラフト: 生徒 1, 2 が配置済み、3 は応答だけあり（新規）
-    const draftOnly12 = {
-      ...EXISTING_DRAFT,
-      assignments: [
-        { student_number: 1, date: '2026-07-15', start: '16:00:00', end: '16:20:00' },
-        { student_number: 2, date: '2026-07-15', start: '16:20:00', end: '16:40:00' },
-      ],
-    }
-    vi.mocked(api.draftsApi.getLatest).mockResolvedValue(draftOnly12)
-    vi.mocked(api.scheduleApi.run).mockResolvedValue({
-      assignments: [
-        { student_number: 3, date: '2026-07-16', start: '16:00:00', end: '16:20:00' },
-      ],
-      unassigned_students: [],
-      violated_constraints: [],
-    })
-
-    renderSchedulePage()
-    await waitFor(() => {
-      expect(screen.getByTestId('cell-original-1')).toBeInTheDocument()
-    })
-    expect(screen.getByTestId('cell-original-2')).toBeInTheDocument()
-    expect(screen.getByTestId('cell-new-3')).toBeInTheDocument()
-    expect(screen.getByTestId('schedule-matrix-legend')).toBeInTheDocument()
-  })
-
-  it('既存ドラフトが無い場合、視覚区別の凡例は表示されない', async () => {
+  it('セルのロックボタンでロック状態をトグルできる（cell-locked-* data-testid）', async () => {
     vi.mocked(api.draftsApi.getLatest).mockRejectedValue(NO_DRAFT_ERROR)
     vi.mocked(api.scheduleApi.run).mockResolvedValue(MOCK_RESULT_FEASIBLE)
     renderSchedulePage()
     await waitFor(() => {
-      expect(screen.getByRole('button', { name: '保存' })).toBeInTheDocument()
+      expect(screen.getByTestId('draggable-student-1')).toBeInTheDocument()
     })
-    expect(screen.queryByTestId('schedule-matrix-legend')).not.toBeInTheDocument()
-    expect(screen.queryByTestId('cell-original-1')).not.toBeInTheDocument()
-    expect(screen.queryByTestId('cell-new-1')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('cell-locked-1')).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByTestId('cell-lock-button-2026-07-15|16:00'))
+    await waitFor(() => {
+      expect(screen.getByTestId('cell-locked-1')).toBeInTheDocument()
+    })
+
+    fireEvent.click(screen.getByTestId('cell-lock-button-2026-07-15|16:00'))
+    await waitFor(() => {
+      expect(screen.queryByTestId('cell-locked-1')).not.toBeInTheDocument()
+    })
+  })
+
+  it('行のロックボタンでその時間枠の全セルを一括ロックできる', async () => {
+    vi.mocked(api.draftsApi.getLatest).mockRejectedValue(NO_DRAFT_ERROR)
+    vi.mocked(api.scheduleApi.run).mockResolvedValue(MOCK_RESULT_FEASIBLE)
+    renderSchedulePage()
+    await waitFor(() => {
+      expect(screen.getByTestId('draggable-student-1')).toBeInTheDocument()
+    })
+    // 16:00 の行には生徒 1（07-15）と生徒 3（07-16）が配置されている
+    fireEvent.click(screen.getByTestId('row-lock-button-16:00'))
+    await waitFor(() => {
+      expect(screen.getByTestId('cell-locked-1')).toBeInTheDocument()
+    })
+    expect(screen.getByTestId('cell-locked-3')).toBeInTheDocument()
+    // 16:20 の行（生徒2）はロックされない
+    expect(screen.queryByTestId('cell-locked-2')).not.toBeInTheDocument()
+
+    // 再度クリックすると一括解除される（全ロック済みなら解除に切り替わる）
+    fireEvent.click(screen.getByTestId('row-lock-button-16:00'))
+    await waitFor(() => {
+      expect(screen.queryByTestId('cell-locked-1')).not.toBeInTheDocument()
+    })
+    expect(screen.queryByTestId('cell-locked-3')).not.toBeInTheDocument()
+  })
+
+  it('列のロックボタンでその日付の全セルを一括ロックできる', async () => {
+    vi.mocked(api.draftsApi.getLatest).mockRejectedValue(NO_DRAFT_ERROR)
+    vi.mocked(api.scheduleApi.run).mockResolvedValue(MOCK_RESULT_FEASIBLE)
+    renderSchedulePage()
+    await waitFor(() => {
+      expect(screen.getByTestId('draggable-student-1')).toBeInTheDocument()
+    })
+    // 2026-07-15 の列には生徒 1, 2 が配置されている
+    fireEvent.click(screen.getByTestId('column-lock-button-2026-07-15'))
+    await waitFor(() => {
+      expect(screen.getByTestId('cell-locked-1')).toBeInTheDocument()
+    })
+    expect(screen.getByTestId('cell-locked-2')).toBeInTheDocument()
+    expect(screen.queryByTestId('cell-locked-3')).not.toBeInTheDocument()
   })
 
   it('既存ドラフトに含まれる名簿外番号は確認ダイアログから除外される', async () => {
@@ -735,42 +862,5 @@ describe('手動入力 UI', () => {
       expect(screen.getByRole('button', { name: '保存' })).toBeInTheDocument()
     })
     expect(screen.queryByTestId('validation-alert')).not.toBeInTheDocument()
-  })
-})
-
-// ===== 生徒コメント一覧（Form 自由記述欄）=====
-
-describe('生徒コメント一覧', () => {
-  beforeEach(() => {
-    vi.resetAllMocks()
-    vi.mocked(api.scheduleApi.run).mockResolvedValue(MOCK_RESULT_FEASIBLE)
-    vi.mocked(api.projectsApi.get).mockResolvedValue(MOCK_PROJECT)
-    vi.mocked(api.draftsApi.getLatest).mockRejectedValue(NO_DRAFT_ERROR)
-  })
-
-  it('コメントが記入された回答は出席番号とともに一覧表示される', async () => {
-    const responsesWithComment = [
-      { ...MOCK_RESPONSES[0], comment: '第二子の面談と続けてお願いしたいです' },
-      MOCK_RESPONSES[1],
-      MOCK_RESPONSES[2],
-    ]
-    vi.mocked(api.responsesApi.list).mockResolvedValue(responsesWithComment)
-    renderSchedulePage()
-    await waitFor(() => {
-      expect(screen.getByTestId('student-comments')).toBeInTheDocument()
-    })
-    const list = screen.getByTestId('student-comments')
-    expect(list).toHaveTextContent('出席番号 1')
-    expect(list).toHaveTextContent('第二子の面談と続けてお願いしたいです')
-  })
-
-  it('コメントが無い回答は一覧に「コメントはありません」と表示される', async () => {
-    vi.mocked(api.responsesApi.list).mockResolvedValue(MOCK_RESPONSES)
-    renderSchedulePage()
-    await waitFor(() => {
-      expect(screen.getByRole('button', { name: '保存' })).toBeInTheDocument()
-    })
-    expect(screen.getByText('コメントはありません。')).toBeInTheDocument()
-    expect(screen.queryByTestId('student-comments')).not.toBeInTheDocument()
   })
 })

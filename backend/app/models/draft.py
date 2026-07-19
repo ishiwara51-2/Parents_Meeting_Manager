@@ -12,7 +12,8 @@ requirements.md §3.2 の ``drafts/draft_<timestamp>.json`` スキーマに対�
         {"student_number": 15, "date": "2026-07-15", "start": "16:00", "end": "16:20"}
       ],
       "unassigned_students": [22],
-      "violated_constraints": []
+      "violated_constraints": [],
+      "locked_students": [15]
     }
 
 Phase 3.4 で ``violated_constraints`` を ``list[str]`` に確定。
@@ -62,4 +63,11 @@ class Draft(BaseModel):
     # Phase 1.2 の list[dict[str, Any]] プレースホルダから変更。
     violated_constraints: list[str] = Field(
         default_factory=list, description="違反したソフト制約の説明文"
+    )
+    locked_students: list[int] = Field(
+        default_factory=list,
+        description=(
+            "ユーザーが手動でロックした出席番号一覧。"
+            "自動配置（再スケジューリング）の対象から除外し、配置を固定する。"
+        ),
     )

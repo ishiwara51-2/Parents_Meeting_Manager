@@ -57,6 +57,9 @@ class DraftSaveRequest(BaseModel):
     assignments: list[Assignment] = Field(default_factory=list)
     unassigned_students: list[int] = Field(default_factory=list)
     violated_constraints: list[str] = Field(default_factory=list)
+    #: ユーザーがロックした出席番号一覧（自動配置から除外する対象）。
+    #: フロントエンドの SchedulePage で管理され、保存時にそのまま引き継がれる。
+    locked_students: list[int] = Field(default_factory=list)
 
 
 # ---------------------------------------------------------------------------
@@ -143,6 +146,7 @@ def save_draft(
         assignments=body.assignments,
         unassigned_students=body.unassigned_students,
         violated_constraints=body.violated_constraints,
+        locked_students=body.locked_students,
     )
 
     draft_repo.save_draft(project_id, draft)

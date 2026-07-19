@@ -143,12 +143,15 @@ export interface Draft {
   assignments: Assignment[]
   unassigned_students: number[]
   violated_constraints: string[]
+  /** ユーザーが手動でロックした出席番号一覧（自動配置の対象外） */
+  locked_students: number[]
 }
 
 export interface DraftSaveRequest {
   assignments: Assignment[]
   unassigned_students: number[]
   violated_constraints: string[]
+  locked_students: number[]
 }
 
 // ===== 認証 =====
