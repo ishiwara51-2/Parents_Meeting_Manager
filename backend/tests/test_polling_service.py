@@ -72,6 +72,7 @@ def _create_project_and_form_json(
         responder_uri="https://docs.google.com/forms/d/FAKE_FORM_ID/viewform",
         edit_uri="https://docs.google.com/forms/d/FAKE_FORM_ID/edit",
         student_number_question_id="QID_SN",
+        comment_question_id="QID_COMMENT",
         row_question_id_by_date={
             "2026-07-15": "QID_ROW_0",
             "2026-07-16": "QID_ROW_1",
@@ -91,6 +92,7 @@ def _make_form_response(
     row0_slots: list[str] | None = None,
     row1_slots: list[str] | None = None,
     row_all_slots: list[str] | None = None,
+    comment: str | None = None,
 ) -> dict[str, Any]:
     """Forms API の ``forms.responses.list`` 風レスポンス1件を組み立てる。
 
@@ -101,6 +103,7 @@ def _make_form_response(
 
     ``row_all_slots`` は matrix 末尾の「すべての日」一括選択行
     （questionId=``QID_ROW_ALL``）への回答。
+    ``comment`` は自由記述コメント欄（questionId=``QID_COMMENT``）への回答。
     """
     answers: dict[str, Any] = {
         "QID_SN": {
@@ -124,6 +127,11 @@ def _make_form_response(
         answers["QID_ROW_ALL"] = {
             "questionId": "QID_ROW_ALL",
             "textAnswers": {"answers": [{"value": v} for v in row_all_slots]},
+        }
+    if comment is not None:
+        answers["QID_COMMENT"] = {
+            "questionId": "QID_COMMENT",
+            "textAnswers": {"answers": [{"value": comment}]},
         }
     return {
         "formId": "FAKE_FORM_ID",
@@ -644,6 +652,191 @@ def test_sync_responses_expands_select_all_dates_row(
         # 2026-07-16: 「すべての日」展開のみ
         ("2026-07-16", "16:20:00", "16:40:00"),
     }
+
+
+# ---------------------------------------------------------------------------
+# 4d. 自由記述コメント欄のパース・サニタイズ
+# ---------------------------------------------------------------------------
+
+
+def test_sync_responses_parses_comment_field(
+    isolated_data_root: Path, fake_creds: object
+) -> None:
+    """コメント欄（``QID_COMMENT``）の回答が ``Response.comment`` に保存される。"""
+    from app.services import polling
+
+    resp_resource = _FakeResponsesResource(
+        [
+            {
+                "responses": [
+                    _make_form_response(
+                        response_id="R1",
+                        student_number="1",
+                        row0_slots=["16:00-16:20"],
+                        comment="第二子の面談と続けてお願いしたいです",
+                    ),
+                ]
+            }
+        ]
+    )
+
+    with TestClient(create_app()) as client:
+        project_id = _create_project_and_form_json(client)
+        with (
+            patch(
+                "app.services.polling.google_auth.get_valid_credentials",
+                return_value=fake_creds,
+            ),
+            patch(
+                "app.services.polling.build",
+                return_value=_make_service_with_responses(resp_resource),
+            ),
+            patch("app.services.polling.time.sleep"),
+        ):
+            polling.sync_responses(project_id)
+
+    settings = get_settings()
+    sn1_dir = settings.projects_dir / project_id / "responses" / "1"
+    saved = json.loads(next(sn1_dir.glob("*.json")).read_text(encoding="utf-8"))
+    assert saved["comment"] == "第二子の面談と続けてお願いしたいです"
+
+
+def test_sync_responses_truncates_overlong_comment(
+    isolated_data_root: Path, fake_creds: object
+) -> None:
+    """コメントが 100 文字を超える場合、保存前に 100 文字へ切り詰められる。
+
+    Forms API 自体には文字数バリデーションが無いため（`forms_api_research.md` §5）、
+    サーバ側で防御する。切り詰めのみで、回答全体（availability 等）は破棄しない。
+    """
+    from app.services import polling
+
+    overlong_comment = "あ" * 150
+    resp_resource = _FakeResponsesResource(
+        [
+            {
+                "responses": [
+                    _make_form_response(
+                        response_id="R1",
+                        student_number="1",
+                        row0_slots=["16:00-16:20"],
+                        comment=overlong_comment,
+                    ),
+                ]
+            }
+        ]
+    )
+
+    with TestClient(create_app()) as client:
+        project_id = _create_project_and_form_json(client)
+        with (
+            patch(
+                "app.services.polling.google_auth.get_valid_credentials",
+                return_value=fake_creds,
+            ),
+            patch(
+                "app.services.polling.build",
+                return_value=_make_service_with_responses(resp_resource),
+            ),
+            patch("app.services.polling.time.sleep"),
+        ):
+            result = polling.sync_responses(project_id)
+
+    assert result["new_count"] == 1, "文字数超過はスキップではなく切り詰めで保存する"
+
+    settings = get_settings()
+    sn1_dir = settings.projects_dir / project_id / "responses" / "1"
+    saved = json.loads(next(sn1_dir.glob("*.json")).read_text(encoding="utf-8"))
+    assert saved["comment"] == "あ" * 100
+
+
+def test_sync_responses_strips_control_characters_from_comment(
+    isolated_data_root: Path, fake_creds: object
+) -> None:
+    """コメント中の制御文字（改行・タブ等）は保存前に除去される。
+
+    フロントエンドは JSX テキスト補間（React の自動エスケープ）で描画するため
+    HTML/script 注入自体のリスクは無いが、ログ・CSV 等の別経路での改行注入を
+    避けるため、制御文字はサーバ側で事前に落とす。
+    """
+    from app.services import polling
+
+    resp_resource = _FakeResponsesResource(
+        [
+            {
+                "responses": [
+                    _make_form_response(
+                        response_id="R1",
+                        student_number="1",
+                        row0_slots=["16:00-16:20"],
+                        comment="1行目\n2行目\tタブ",
+                    ),
+                ]
+            }
+        ]
+    )
+
+    with TestClient(create_app()) as client:
+        project_id = _create_project_and_form_json(client)
+        with (
+            patch(
+                "app.services.polling.google_auth.get_valid_credentials",
+                return_value=fake_creds,
+            ),
+            patch(
+                "app.services.polling.build",
+                return_value=_make_service_with_responses(resp_resource),
+            ),
+            patch("app.services.polling.time.sleep"),
+        ):
+            polling.sync_responses(project_id)
+
+    settings = get_settings()
+    sn1_dir = settings.projects_dir / project_id / "responses" / "1"
+    saved = json.loads(next(sn1_dir.glob("*.json")).read_text(encoding="utf-8"))
+    assert saved["comment"] == "1行目2行目タブ"
+
+
+def test_sync_responses_blank_comment_saved_as_none(
+    isolated_data_root: Path, fake_creds: object
+) -> None:
+    """空欄・空白のみのコメント回答は ``None``（未回答）として保存される。"""
+    from app.services import polling
+
+    resp_resource = _FakeResponsesResource(
+        [
+            {
+                "responses": [
+                    _make_form_response(
+                        response_id="R1",
+                        student_number="1",
+                        row0_slots=["16:00-16:20"],
+                        comment="   ",
+                    ),
+                ]
+            }
+        ]
+    )
+
+    with TestClient(create_app()) as client:
+        project_id = _create_project_and_form_json(client)
+        with (
+            patch(
+                "app.services.polling.google_auth.get_valid_credentials",
+                return_value=fake_creds,
+            ),
+            patch(
+                "app.services.polling.build",
+                return_value=_make_service_with_responses(resp_resource),
+            ),
+            patch("app.services.polling.time.sleep"),
+        ):
+            polling.sync_responses(project_id)
+
+    settings = get_settings()
+    sn1_dir = settings.projects_dir / project_id / "responses" / "1"
+    saved = json.loads(next(sn1_dir.glob("*.json")).read_text(encoding="utf-8"))
+    assert saved["comment"] is None
 
 
 # ---------------------------------------------------------------------------

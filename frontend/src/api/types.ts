@@ -84,6 +84,7 @@ export interface FormInfo {
   responderUri: string
   editUri: string
   student_number_question_id: string
+  comment_question_id?: string | null
   row_question_id_by_date: Record<string, string>
   time_slot_labels: string[]
   select_all_dates_row_question_id?: string | null
@@ -103,6 +104,7 @@ export interface Response {
   submitted_at: string
   google_form_response_id: string
   availability: AvailabilitySlot[]
+  comment?: string | null
 }
 
 export interface ResponsesStatus {

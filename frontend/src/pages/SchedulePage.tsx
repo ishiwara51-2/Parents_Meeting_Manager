@@ -708,6 +708,62 @@ function AvailabilityMatrix({ responses, project }: AvailabilityMatrixProps) {
   )
 }
 
+// --- 生徒コメント一覧（読み取り専用、Form 回答の自由記述欄）---
+
+interface StudentCommentsProps {
+  responses: ApiResponse[]
+}
+
+/**
+ * 出席番号ごとにコメント（自由記述欄）を一覧表示する。コメント未記入の
+ * 回答は表示しない。JSX のテキスト補間は React が自動でエスケープするため
+ * （dangerouslySetInnerHTML は使用しない）、ここでの表示自体に XSS の
+ * リスクは無い。文字数制限・制御文字の除去はサーバ側パース時点
+ * （app.services.polling._sanitize_comment）で行われた値を表示するのみ。
+ */
+function StudentComments({ responses }: StudentCommentsProps) {
+  const commented = responses
+    .filter((r) => r.comment != null && r.comment.trim() !== '')
+    .sort((a, b) => a.student_number - b.student_number)
+
+  if (commented.length === 0) {
+    return (
+      <p style={{ color: '#6b7280', fontSize: '0.9rem' }}>
+        コメントはありません。
+      </p>
+    )
+  }
+
+  return (
+    <ul
+      data-testid="student-comments"
+      style={{ listStyle: 'none', margin: 0, padding: 0 }}
+    >
+      {commented.map((r) => (
+        <li
+          key={r.student_number}
+          style={{
+            border: '1px solid #d1d5db',
+            borderRadius: '4px',
+            padding: '8px 12px',
+            marginBottom: '8px',
+          }}
+        >
+          <span style={{ fontWeight: 600 }}>出席番号 {r.student_number}</span>
+          <p
+            style={{
+              margin: '4px 0 0',
+              overflowWrap: 'break-word',
+            }}
+          >
+            {r.comment}
+          </p>
+        </li>
+      ))}
+    </ul>
+  )
+}
+
 // --- マトリクス表示 ---
 
 interface ScheduleMatrixProps {
@@ -1456,6 +1512,19 @@ export default function SchedulePage() {
               description="各枠を「可」と回答した出席番号を列挙しています。"
             />
             <AvailabilityMatrix responses={responses} project={project} />
+          </Card>
+        </section>
+      )}
+
+      {/* Google Form 自由記述コメント一覧（参考表示・読み取り専用）*/}
+      {result != null && (
+        <section className="mt-6">
+          <Card>
+            <CardHeader
+              title="生徒コメント一覧"
+              description="Form の自由記述欄（任意、最大100文字）に記入された内容です。"
+            />
+            <StudentComments responses={responses} />
           </Card>
         </section>
       )}

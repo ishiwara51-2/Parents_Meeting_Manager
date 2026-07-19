@@ -24,6 +24,7 @@ from __future__ import annotations
 import email.utils
 import logging
 import time
+import unicodedata
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable
@@ -40,6 +41,7 @@ from app.repositories.file_repository import (
 )
 from app.services import google_auth
 from app.services.google_forms import (
+    COMMENT_MAX_LENGTH,
     GoogleAuthRequiredError,
     SELECT_ALL_TIMES_COLUMN_LABEL,
 )
@@ -241,6 +243,40 @@ def _extract_text_value(answer: dict[str, Any] | None) -> str | None:
     return text_answers[0].get("value")
 
 
+def _sanitize_comment(raw: str | None) -> str | None:
+    """自由記述コメントをサーバ側でサニタイズする。
+
+    Forms API の ``TextQuestion`` には文字数バリデーション・制御文字の
+    フィルタが無いため（`forms_api_research.md` §5）、ここで防御する：
+        - 制御文字（Unicode カテゴリ ``Cc``。改行・タブ・NUL 等）を除去する。
+          全角スペース等の通常の空白文字はカテゴリが異なるため保持される
+        - 前後の空白を除去し、空文字列になった場合は None（未回答扱い）
+        - 100 文字（``COMMENT_MAX_LENGTH``）を超える場合は切り詰める。
+          回答全体を不正回答としてスキップする必要はないため、
+          student_number のような検証失敗即スキップではなく切り詰めで対応する
+
+    表示側（フロントエンド）は React の JSX テキスト補間で描画するため
+    HTML/script として解釈されることはなく、XSS 対策としての追加処理は不要
+    （``dangerouslySetInnerHTML`` は使用しない前提）。
+    """
+    if raw is None:
+        return None
+    without_control_chars = "".join(
+        ch for ch in raw if unicodedata.category(ch) != "Cc"
+    )
+    stripped = without_control_chars.strip()
+    if not stripped:
+        return None
+    if len(stripped) > COMMENT_MAX_LENGTH:
+        logger.warning(
+            "comment exceeds %d chars (%d); truncating",
+            COMMENT_MAX_LENGTH,
+            len(stripped),
+        )
+        stripped = stripped[:COMMENT_MAX_LENGTH]
+    return stripped
+
+
 def _extract_selected_labels(answer: dict[str, Any] | None) -> list[str]:
     """matrix 1 行に対する CHECKBOX 回答ラベル配列を取り出す。
 
@@ -406,6 +442,14 @@ def _parse_response(
         select_all_dates_row_question_id=form_info.select_all_dates_row_question_id,
     )
 
+    # 4. コメント（自由記述、任意）
+    raw_comment = (
+        _extract_text_value(answers.get(form_info.comment_question_id))
+        if form_info.comment_question_id
+        else None
+    )
+    comment = _sanitize_comment(raw_comment)
+
     try:
         return Response(
             project_id=project_id,
@@ -413,6 +457,7 @@ def _parse_response(
             submitted_at=submitted_at,
             google_form_response_id=response_id,
             availability=availability,
+            comment=comment,
         )
     except Exception as exc:
         logger.warning(

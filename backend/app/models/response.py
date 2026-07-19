@@ -13,8 +13,13 @@ requirements.md §3.2 の ``responses/<出席番号>/<timestamp>.json`` スキ�
         {"date": "2026-07-15", "start": "16:00", "end": "16:20"},
         {"date": "2026-07-15", "start": "16:20", "end": "16:40"},
         {"date": "2026-07-16", "start": "17:00", "end": "17:20"}
-      ]
+      ],
+      "comment": "第二子の面談と続けてお願いしたいです"
     }
+
+``comment`` は Form の自由記述欄（任意、最大100文字）に対応する。Forms API
+自体には文字数バリデーションが無いため、``app.services.polling._sanitize_comment``
+でサーバ側のみ制御文字除去・100文字への切り詰めを行う（`docs/forms_api_research.md` §5）。
 """
 
 from __future__ import annotations
@@ -52,4 +57,12 @@ class Response(BaseModel):
     )
     availability: list[Availability] = Field(
         default_factory=list, description="申告された可スロット一覧"
+    )
+    comment: str | None = Field(
+        default=None,
+        max_length=100,
+        description=(
+            "自由記述コメント（任意、最大100文字）。"
+            "サニタイズ・切り詰めはパース時（app.services.polling）で実施済みの値が入る"
+        ),
     )

@@ -737,3 +737,40 @@ describe('手動入力 UI', () => {
     expect(screen.queryByTestId('validation-alert')).not.toBeInTheDocument()
   })
 })
+
+// ===== 生徒コメント一覧（Form 自由記述欄）=====
+
+describe('生徒コメント一覧', () => {
+  beforeEach(() => {
+    vi.resetAllMocks()
+    vi.mocked(api.scheduleApi.run).mockResolvedValue(MOCK_RESULT_FEASIBLE)
+    vi.mocked(api.projectsApi.get).mockResolvedValue(MOCK_PROJECT)
+    vi.mocked(api.draftsApi.getLatest).mockRejectedValue(NO_DRAFT_ERROR)
+  })
+
+  it('コメントが記入された回答は出席番号とともに一覧表示される', async () => {
+    const responsesWithComment = [
+      { ...MOCK_RESPONSES[0], comment: '第二子の面談と続けてお願いしたいです' },
+      MOCK_RESPONSES[1],
+      MOCK_RESPONSES[2],
+    ]
+    vi.mocked(api.responsesApi.list).mockResolvedValue(responsesWithComment)
+    renderSchedulePage()
+    await waitFor(() => {
+      expect(screen.getByTestId('student-comments')).toBeInTheDocument()
+    })
+    const list = screen.getByTestId('student-comments')
+    expect(list).toHaveTextContent('出席番号 1')
+    expect(list).toHaveTextContent('第二子の面談と続けてお願いしたいです')
+  })
+
+  it('コメントが無い回答は一覧に「コメントはありません」と表示される', async () => {
+    vi.mocked(api.responsesApi.list).mockResolvedValue(MOCK_RESPONSES)
+    renderSchedulePage()
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: '保存' })).toBeInTheDocument()
+    })
+    expect(screen.getByText('コメントはありません。')).toBeInTheDocument()
+    expect(screen.queryByTestId('student-comments')).not.toBeInTheDocument()
+  })
+})

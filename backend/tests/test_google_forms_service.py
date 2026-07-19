@@ -83,6 +83,12 @@ class FakeFormsApi:
             "replies": [
                 {"createItem": {"itemId": "ITEM_SN", "questionId": ["QID_SN"]}},
                 {"createItem": {"itemId": "ITEM_MATRIX", "questionId": []}},
+                {
+                    "createItem": {
+                        "itemId": "ITEM_COMMENT",
+                        "questionId": ["QID_COMMENT"],
+                    }
+                },
             ]
         }
         # forms.get() のデフォルト応答（フォールバック用に各行 questionId を含む）
@@ -205,9 +211,10 @@ def test_create_form_sends_correct_batch_update_requests(
     """POST /api/projects/{id}/form は
 
     - ``forms.create`` を ``info.title`` 付きで呼ぶ
-    - ``forms.batchUpdate`` で 2 件の ``createItem`` を送る
+    - ``forms.batchUpdate`` で 3 件の ``createItem`` を送る
         1. 出席番号 ``TextQuestion(paragraph=False)`` + ``required=True``
         2. matrix ``QuestionGroupItem`` + ``Grid(columns.type=CHECKBOX)``
+        3. 自由記述コメント ``TextQuestion(paragraph=False)`` + ``required=False``
     """
     fake_api = FakeFormsApi()
 
@@ -232,14 +239,14 @@ def test_create_form_sends_correct_batch_update_requests(
     info = fake_api.create_called_with.get("info") or {}
     assert info.get("title"), "info.title が空"
 
-    # forms.batchUpdate: 2 件の createItem
+    # forms.batchUpdate: 3 件の createItem
     assert fake_api.batch_update_called_with is not None, (
         "forms.batchUpdate が呼ばれていない"
     )
     body = fake_api.batch_update_called_with["body"]
     requests = body["requests"]
-    assert len(requests) == 2, (
-        f"createItem は 2 件（TextQuestion + matrix）であるべき: {requests}"
+    assert len(requests) == 3, (
+        f"createItem は 3 件（TextQuestion + matrix + コメント）であるべき: {requests}"
     )
 
     # 1 件目: 出席番号 TextQuestion
@@ -252,6 +259,12 @@ def test_create_form_sends_correct_batch_update_requests(
     matrix_req = requests[1]["createItem"]
     qgi = matrix_req["item"]["questionGroupItem"]
     assert qgi["grid"]["columns"]["type"] == "CHECKBOX"
+
+    # 3 件目: 自由記述コメント TextQuestion（任意項目）
+    comment_req = requests[2]["createItem"]
+    comment_question = comment_req["item"]["questionItem"]["question"]
+    assert comment_question["required"] is False
+    assert comment_question["textQuestion"]["paragraph"] is False
 
 
 # ---------------------------------------------------------------------------
@@ -351,6 +364,8 @@ def test_forms_get_called_to_resolve_row_question_ids(
     }
     # 「すべての日」行の questionId も forms.get 応答から解決される
     assert saved["select_all_dates_row_question_id"] == "QID_ROW_ALL"
+    # コメント questionId は forms.get を待たず batchUpdate 応答から解決される
+    assert saved["comment_question_id"] == "QID_COMMENT"
 
 
 # ---------------------------------------------------------------------------
@@ -377,6 +392,12 @@ def test_forms_get_skipped_when_batch_response_includes_row_question_ids(
                         "itemId": "ITEM_MATRIX",
                         # 候補日2件 + 「すべての日」一括選択行の計3件
                         "questionId": ["QID_ROW_A", "QID_ROW_B", "QID_ROW_ALL"],
+                    }
+                },
+                {
+                    "createItem": {
+                        "itemId": "ITEM_COMMENT",
+                        "questionId": ["QID_COMMENT"],
                     }
                 },
             ]
@@ -415,6 +436,8 @@ def test_forms_get_skipped_when_batch_response_includes_row_question_ids(
     }
     # 末尾の「すべての日」行の questionId も別枠で保存される
     assert saved["select_all_dates_row_question_id"] == "QID_ROW_ALL"
+    # コメント questionId も batchUpdate 応答から保存される
+    assert saved["comment_question_id"] == "QID_COMMENT"
 
 
 # ---------------------------------------------------------------------------

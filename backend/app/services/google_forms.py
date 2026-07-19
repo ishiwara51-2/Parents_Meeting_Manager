@@ -8,8 +8,9 @@ API 呼び出しシーケンス（公式の標準パターン）::
 
     1. forms.create(body={"info": {"title": ...}})
        → タイトルだけ確定。タイトル以外のフィールドはコピーされない仕様
-    2. forms.batchUpdate(formId, body={"requests": [createItem×2]})
-       → 出席番号 TextQuestion と 候補日×時間枠 matrix を追加
+    2. forms.batchUpdate(formId, body={"requests": [createItem×3]})
+       → 出席番号 TextQuestion、候補日×時間枠 matrix、自由記述コメント
+         TextQuestion を追加
     3. （フォールバック）forms.get(formId)
        → batchUpdate の応答に matrix の行 questionId が含まれない場合のみ
          実機 API での挙動が公式リファレンスに明記されていないリスクへの保険
@@ -46,6 +47,12 @@ logger = logging.getLogger(__name__)
 # （app.services.polling._resolve_time_pairs）で実際の候補日×時間枠へ展開する。
 SELECT_ALL_TIMES_COLUMN_LABEL = "終日（すべての時間帯）"
 SELECT_ALL_DATES_ROW_TITLE = "すべての日（共通で使える時間帯があれば）"
+
+# 自由記述コメント欄。Forms API の TextQuestion には文字数バリデーションが
+# 無いため（`forms_api_research.md` §5）、100 文字超の入力に対する防御は
+# ``app.services.polling._sanitize_comment`` でサーバ側のみ行う。
+COMMENT_QUESTION_TITLE = "面談についてのご要望・コメント（任意）"
+COMMENT_MAX_LENGTH = 100
 
 
 # ---------------------------------------------------------------------------
@@ -165,13 +172,43 @@ def _build_matrix_item(
     }
 
 
+def _build_comment_item() -> dict[str, Any]:
+    """自由記述コメント質問の ``createItem`` リクエストを組み立てる。
+
+    matrix（インデックス 1）より後ろのインデックス 2 に配置する。
+    ``_extract_row_qids_from_batch`` が matrix を ``replies[1]`` 固定で参照する
+    ため、matrix より前に別の質問を挿し込むとそちらが壊れる。
+    """
+    return {
+        "createItem": {
+            "location": {"index": 2},
+            "item": {
+                "title": COMMENT_QUESTION_TITLE,
+                "description": (
+                    "面談の日程調整について伝えたいことがあればご記入ください"
+                    f"（任意、{COMMENT_MAX_LENGTH}文字以内。"
+                    "超過分は保存時に切り詰められます）"
+                ),
+                "questionItem": {
+                    "question": {
+                        "required": False,
+                        "textQuestion": {"paragraph": False},
+                    }
+                },
+            },
+        }
+    }
+
+
 def _build_batch_update_body(
     *, candidate_dates: list[str], time_slot_labels: list[str]
 ) -> dict[str, Any]:
     """``forms.batchUpdate`` リクエスト本体を組み立てる。
 
-    インデックス 0 = 出席番号 TextQuestion、インデックス 1 = matrix。
-    順序は ``form.json`` 保存時の ``row_question_id_by_date`` 復元にも依存する。
+    インデックス 0 = 出席番号 TextQuestion、インデックス 1 = matrix、
+    インデックス 2 = 自由記述コメント TextQuestion。
+    順序は ``form.json`` 保存時の ``row_question_id_by_date`` 復元にも依存する
+    （matrix は常にインデックス 1 に固定する）。
     """
     return {
         "requests": [
@@ -180,6 +217,7 @@ def _build_batch_update_body(
                 candidate_dates=candidate_dates,
                 time_slot_labels=time_slot_labels,
             ),
+            _build_comment_item(),
         ]
     }
 
@@ -208,6 +246,30 @@ def _extract_student_number_qid(batch_response: dict[str, Any]) -> str:
         raise RuntimeError(
             "forms.batchUpdate 応答の出席番号 questionId が空配列です"
         )
+    return qid_list[0]
+
+
+def _extract_comment_qid(batch_response: dict[str, Any]) -> str | None:
+    """``batchUpdate`` 応答からコメント質問の questionId を取り出す。
+
+    コメント質問は補助的な項目であり、取得に失敗しても Form 自体の生成は
+    継続する（``comment_question_id=None`` として扱い、回答パース時は
+    コメント欄なしとして無視される）。
+    """
+    try:
+        qid_list = batch_response["replies"][2]["createItem"]["questionId"]
+    except (KeyError, IndexError, TypeError):
+        logger.warning(
+            "forms.batchUpdate 応答からコメント questionId が取得できません。"
+            "コメント欄なしの Form として扱います"
+        )
+        return None
+    if not qid_list:
+        logger.warning(
+            "forms.batchUpdate 応答のコメント questionId が空配列です。"
+            "コメント欄なしの Form として扱います"
+        )
+        return None
     return qid_list[0]
 
 
@@ -362,6 +424,9 @@ def create_form(project: Project) -> FormInfo:
     # 出席番号 questionId は batchUpdate 応答から必ず取れる想定
     student_number_qid = _extract_student_number_qid(batch_response)
 
+    # コメント questionId（任意項目のため、取得失敗は None のまま継続）
+    comment_qid = _extract_comment_qid(batch_response)
+
     # 3. matrix 行 questionId（候補日 + 「すべての日」行）は batchUpdate 応答に
     #    含まれることもあるが、公式リファレンスに明記が無いため、
     #    取得できなければフォールバックで forms.get
@@ -391,6 +456,7 @@ def create_form(project: Project) -> FormInfo:
         responder_uri=responder_uri,
         edit_uri=_build_edit_uri(form_id),
         student_number_question_id=student_number_qid,
+        comment_question_id=comment_qid,
         row_question_id_by_date=row_question_id_by_date,
         time_slot_labels=time_slot_labels,
         select_all_dates_row_question_id=select_all_dates_qid,
@@ -402,4 +468,5 @@ __all__ = [
     "GoogleAuthRequiredError",
     "SELECT_ALL_TIMES_COLUMN_LABEL",
     "SELECT_ALL_DATES_ROW_TITLE",
+    "COMMENT_MAX_LENGTH",
 ]

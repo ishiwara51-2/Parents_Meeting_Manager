@@ -59,6 +59,14 @@ class FormInfo(BaseModel):
         ...,
         description="出席番号 TextQuestion の questionId（パース時に使用）",
     )
+    comment_question_id: str | None = Field(
+        default=None,
+        description=(
+            "自由記述コメント TextQuestion の questionId（任意項目）。"
+            "Form 生成時に取得できなかった場合は None とし、"
+            "回答パース時はコメント欄なしとして扱う"
+        ),
+    )
     row_question_id_by_date: dict[str, str] = Field(
         default_factory=dict,
         description=(
