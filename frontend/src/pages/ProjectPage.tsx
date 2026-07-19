@@ -16,6 +16,7 @@ import { useParams, useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { projectsApi, formApi, responsesApi } from '../api'
 import type { FormInfo } from '../api'
+import type { Response as ApiResponse } from '../api/types'
 import {
   Alert,
   AppShell,
@@ -25,6 +26,47 @@ import {
   Stepper,
 } from '../components/ui'
 import type { Step, StepState } from '../components/ui'
+
+// --- 生徒コメント一覧（読み取り専用、Form 回答の自由記述欄）---
+
+interface StudentCommentsProps {
+  responses: ApiResponse[]
+}
+
+/**
+ * 出席番号ごとにコメント（自由記述欄）を一覧表示する。コメント未記入の
+ * 回答は表示しない。JSX のテキスト補間は React が自動でエスケープするため
+ * （dangerouslySetInnerHTML は使用しない）、ここでの表示自体に XSS の
+ * リスクは無い。文字数制限・制御文字の除去はサーバ側パース時点
+ * （app.services.polling._sanitize_comment）で行われた値を表示するのみ。
+ */
+function StudentComments({ responses }: StudentCommentsProps) {
+  const commented = responses
+    .filter((r) => r.comment != null && r.comment.trim() !== '')
+    .sort((a, b) => a.student_number - b.student_number)
+
+  if (commented.length === 0) {
+    return (
+      <p className="text-sm text-fg-muted">コメントはありません。</p>
+    )
+  }
+
+  return (
+    <ul data-testid="student-comments" className="list-none m-0 p-0">
+      {commented.map((r) => (
+        <li
+          key={r.student_number}
+          className="rounded-md border border-border px-3 py-2 mb-2"
+        >
+          <span className="font-semibold text-fg">
+            出席番号 {r.student_number}
+          </span>
+          <p className="mt-1 text-sm text-fg break-words">{r.comment}</p>
+        </li>
+      ))}
+    </ul>
+  )
+}
 
 /** 自動ポーリング間隔（ミリ秒）。requirements.md §4.4 の既定 60 秒 */
 const POLLING_INTERVAL_MS = 60_000
@@ -70,6 +112,11 @@ export default function ProjectPage() {
     queryFn: () => responsesApi.status(projectId!),
   })
 
+  const { data: responses } = useQuery({
+    queryKey: ['responses', projectId],
+    queryFn: () => responsesApi.list(projectId!),
+  })
+
   const createFormMutation = useMutation({
     mutationFn: () => formApi.create(projectId!),
     onSuccess: () => {
@@ -102,6 +149,7 @@ export default function ProjectPage() {
     mutationFn: () => responsesApi.sync(projectId!),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['responses-status', projectId] })
+      queryClient.invalidateQueries({ queryKey: ['responses', projectId] })
       setSyncError('')
     },
     onError: (err: Error) => {
@@ -117,6 +165,9 @@ export default function ProjectPage() {
         .then(() => {
           queryClient.invalidateQueries({
             queryKey: ['responses-status', projectId],
+          })
+          queryClient.invalidateQueries({
+            queryKey: ['responses', projectId],
           })
         })
         .catch(() => {
@@ -463,6 +514,15 @@ export default function ProjectPage() {
               {syncError}
             </Alert>
           )}
+        </Card>
+
+        {/* Google Form 自由記述コメント一覧（参考表示・読み取り専用）*/}
+        <Card>
+          <CardHeader
+            title="生徒コメント一覧"
+            description="Form の自由記述欄（任意、最大100文字）に記入された内容です。"
+          />
+          <StudentComments responses={responses ?? []} />
         </Card>
 
         {/* ナビゲーション */}

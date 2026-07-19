@@ -29,6 +29,7 @@ vi.mock('../src/api', () => ({
   responsesApi: {
     sync: vi.fn(),
     status: vi.fn(),
+    list: vi.fn(),
   },
 }))
 
@@ -62,6 +63,23 @@ const MOCK_STATUS = {
   received: [1, 2],
   pending: [3, 4, 5],
 }
+
+const MOCK_RESPONSES = [
+  {
+    project_id: PROJECT_ID,
+    student_number: 1,
+    submitted_at: '2026-07-01T00:00:00+09:00',
+    google_form_response_id: 'abc1',
+    availability: [{ date: '2026-07-15', start: '16:00', end: '16:20' }],
+  },
+  {
+    project_id: PROJECT_ID,
+    student_number: 2,
+    submitted_at: '2026-07-01T00:00:00+09:00',
+    google_form_response_id: 'abc2',
+    availability: [{ date: '2026-07-15', start: '16:00', end: '16:20' }],
+  },
+]
 
 /** projectId パラメータ付きルートで ProjectPage をレンダリングするヘルパー */
 function renderProjectPage(projectId = PROJECT_ID) {
@@ -101,6 +119,7 @@ describe('ProjectPage', () => {
     )
     vi.mocked(api.responsesApi.status).mockResolvedValue(MOCK_STATUS)
     vi.mocked(api.responsesApi.sync).mockResolvedValue(undefined)
+    vi.mocked(api.responsesApi.list).mockResolvedValue(MOCK_RESPONSES)
   })
 
   it('プロジェクトのdisplay_nameが表示される', async () => {
@@ -259,6 +278,32 @@ describe('ProjectPage', () => {
       expect(
         within(stepper).queryByRole('button', { name: /回答収集/ }),
       ).not.toBeInTheDocument()
+    })
+  })
+
+  describe('生徒コメント一覧', () => {
+    it('コメントが記入された回答は出席番号とともに一覧表示される', async () => {
+      vi.mocked(api.responsesApi.list).mockResolvedValue([
+        { ...MOCK_RESPONSES[0], comment: '第二子の面談と続けてお願いしたいです' },
+        MOCK_RESPONSES[1],
+      ])
+      renderProjectPage()
+
+      await waitFor(() => {
+        expect(screen.getByTestId('student-comments')).toBeInTheDocument()
+      })
+      const list = screen.getByTestId('student-comments')
+      expect(list).toHaveTextContent('出席番号 1')
+      expect(list).toHaveTextContent('第二子の面談と続けてお願いしたいです')
+    })
+
+    it('コメントが無い回答は一覧に「コメントはありません」と表示される', async () => {
+      renderProjectPage()
+
+      await waitFor(() => {
+        expect(screen.getByText('コメントはありません。')).toBeInTheDocument()
+      })
+      expect(screen.queryByTestId('student-comments')).not.toBeInTheDocument()
     })
   })
 })
