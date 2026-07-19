@@ -1384,7 +1384,7 @@ export default function SchedulePage() {
   return (
     <AppShell
       title="日程案"
-      subtitle="自動生成された配置をドラッグ＆ドロップやセル編集で調整できます。"
+      subtitle="自動生成された配置をドラッグ＆ドロップやセル編集で調整できます。🔒 でロックした配置は、再度自動生成しても動かなくなります。"
       breadcrumbs={[
         { label: 'プロジェクト', to: `/projects/${projectId}` },
         { label: '日程案' },
