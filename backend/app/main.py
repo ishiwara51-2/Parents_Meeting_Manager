@@ -105,7 +105,7 @@ def create_app() -> FastAPI:
     # frontend/dist が存在する場合のみ配信を有効化する。
     # Vite のビルド出力先が frontend/dist であることを前提とする。
     _frontend_dist = (
-        Path(__file__).resolve().parent.parent.parent.parent
+        Path(__file__).resolve().parent.parent.parent
         / "frontend"
         / "dist"
     )
