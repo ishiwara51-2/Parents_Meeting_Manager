@@ -73,6 +73,38 @@ describe('SavedPage', () => {
     expect(screen.getByRole('button', { name: '再編集' })).toBeInTheDocument()
   })
 
+  it('「プロジェクトへ戻る」ボタンが表示される', () => {
+    renderSavedPage()
+    expect(
+      screen.getByRole('button', { name: 'プロジェクトへ戻る' }),
+    ).toBeInTheDocument()
+  })
+
+  it('「プロジェクトへ戻る」ボタンクリックでプロジェクト詳細ページへ遷移する', async () => {
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    })
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter initialEntries={[`/projects/${PROJECT_ID}/saved`]}>
+          <Routes>
+            <Route path="/projects/:projectId/saved" element={<SavedPage />} />
+            <Route
+              path="/projects/:projectId"
+              element={<div>ProjectPage</div>}
+            />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    )
+    fireEvent.click(
+      screen.getByRole('button', { name: 'プロジェクトへ戻る' }),
+    )
+    await waitFor(() => {
+      expect(screen.getByText('ProjectPage')).toBeInTheDocument()
+    })
+  })
+
   it('「PDF出力」ボタンクリック時に /api/projects/${id}/pdf への fetch が呼ばれる', async () => {
     // fetch をモック: 正常なPDFレスポンスを返す
     const mockFetch = vi.fn().mockResolvedValue({

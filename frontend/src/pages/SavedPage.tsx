@@ -126,6 +126,13 @@ export default function SavedPage() {
           >
             {unlocking ? '処理中...' : '再編集'}
           </Button>
+          <Button
+            variant="secondary"
+            size="lg"
+            onClick={() => navigate(`/projects/${projectId}`)}
+          >
+            プロジェクトへ戻る
+          </Button>
         </div>
       </div>
     </AppShell>
