@@ -96,4 +96,21 @@ describe('ProjectRulesPage', () => {
       expect(screen.getByRole('status')).toBeInTheDocument()
     })
   })
+
+  it('「プロジェクトへ戻る」ボタンでプロジェクト画面に遷移する', async () => {
+    const user = userEvent.setup()
+    renderProjectRulesPage()
+
+    await waitFor(() => {
+      expect(
+        screen.getByRole('button', { name: 'プロジェクトへ戻る' })
+      ).toBeInTheDocument()
+    })
+
+    await user.click(screen.getByRole('button', { name: 'プロジェクトへ戻る' }))
+
+    await waitFor(() => {
+      expect(screen.getByTestId('project-page')).toBeInTheDocument()
+    })
+  })
 })

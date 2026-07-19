@@ -8,7 +8,7 @@
  */
 
 import { useState, useEffect } from 'react'
-import { useParams } from 'react-router-dom'
+import { useParams, useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { rulesApi } from '../api'
 import type { Rules } from '../api'
@@ -24,6 +24,7 @@ import {
 
 export default function ProjectRulesPage() {
   const { projectId } = useParams<{ projectId: string }>()
+  const navigate = useNavigate()
   const queryClient = useQueryClient()
 
   const [localRules, setLocalRules] = useState<Rules | null>(null)
@@ -186,6 +187,13 @@ export default function ProjectRulesPage() {
             disabled={mutation.isPending}
           >
             {mutation.isPending ? '保存中...' : '保存'}
+          </Button>
+          <Button
+            variant="secondary"
+            size="lg"
+            onClick={() => navigate(`/projects/${projectId}`)}
+          >
+            プロジェクトへ戻る
           </Button>
         </div>
       </div>
