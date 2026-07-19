@@ -86,6 +86,7 @@ export interface FormInfo {
   student_number_question_id: string
   row_question_id_by_date: Record<string, string>
   time_slot_labels: string[]
+  select_all_dates_row_question_id?: string | null
 }
 
 // ===== 回答 =====

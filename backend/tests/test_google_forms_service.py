@@ -26,6 +26,10 @@ from fastapi.testclient import TestClient
 
 from app.config import get_settings
 from app.main import create_app
+from app.services.google_forms import (
+    SELECT_ALL_DATES_ROW_TITLE,
+    SELECT_ALL_TIMES_COLUMN_LABEL,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -125,6 +129,13 @@ class FakeFormsApi:
                                 "questionId": "QID_ROW_1",
                                 "required": False,
                                 "rowQuestion": {"title": "2026-07-16"},
+                            },
+                            {
+                                "questionId": "QID_ROW_ALL",
+                                "required": False,
+                                "rowQuestion": {
+                                    "title": SELECT_ALL_DATES_ROW_TITLE
+                                },
                             },
                         ],
                     },
@@ -275,15 +286,19 @@ def test_matrix_rows_and_columns_match_project_definition(
     matrix_req = fake_api.batch_update_called_with["body"]["requests"][1]
     qgi = matrix_req["createItem"]["item"]["questionGroupItem"]
 
-    # columns: 時間枠ラベルが HH:MM-HH:MM 形式で順序通り
+    # columns: 時間枠ラベルが HH:MM-HH:MM 形式で順序通り、末尾に「終日」一括選択列を追加
     column_values = [c["value"] for c in qgi["grid"]["columns"]["options"]]
-    assert column_values == ["16:00-16:20", "16:20-16:40"]
+    assert column_values == [
+        "16:00-16:20",
+        "16:20-16:40",
+        SELECT_ALL_TIMES_COLUMN_LABEL,
+    ]
 
-    # rows: 候補日が ISO 文字列で順序通り、各 row は required=False
-    # （0 枠の日を許容するため。すべての日が空でも回答送信可能）
+    # rows: 候補日が ISO 文字列で順序通り、末尾に「すべての日」一括選択行を追加。
+    # 各 row は required=False（0 枠の日を許容するため。すべての日が空でも回答送信可能）
     questions = qgi["questions"]
     row_titles = [q["rowQuestion"]["title"] for q in questions]
-    assert row_titles == ["2026-07-15", "2026-07-16"]
+    assert row_titles == ["2026-07-15", "2026-07-16", SELECT_ALL_DATES_ROW_TITLE]
     for q in questions:
         assert q["required"] is False, "0 枠の日を許容するため各行は required=False"
 
@@ -334,6 +349,8 @@ def test_forms_get_called_to_resolve_row_question_ids(
         "2026-07-15": "QID_ROW_0",
         "2026-07-16": "QID_ROW_1",
     }
+    # 「すべての日」行の questionId も forms.get 応答から解決される
+    assert saved["select_all_dates_row_question_id"] == "QID_ROW_ALL"
 
 
 # ---------------------------------------------------------------------------
@@ -358,7 +375,8 @@ def test_forms_get_skipped_when_batch_response_includes_row_question_ids(
                 {
                     "createItem": {
                         "itemId": "ITEM_MATRIX",
-                        "questionId": ["QID_ROW_A", "QID_ROW_B"],
+                        # 候補日2件 + 「すべての日」一括選択行の計3件
+                        "questionId": ["QID_ROW_A", "QID_ROW_B", "QID_ROW_ALL"],
                     }
                 },
             ]
@@ -395,6 +413,8 @@ def test_forms_get_skipped_when_batch_response_includes_row_question_ids(
         "2026-07-15": "QID_ROW_A",
         "2026-07-16": "QID_ROW_B",
     }
+    # 末尾の「すべての日」行の questionId も別枠で保存される
+    assert saved["select_all_dates_row_question_id"] == "QID_ROW_ALL"
 
 
 # ---------------------------------------------------------------------------

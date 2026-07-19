@@ -39,7 +39,10 @@ from app.repositories.file_repository import (
     FileResponseRepository,
 )
 from app.services import google_auth
-from app.services.google_forms import GoogleAuthRequiredError
+from app.services.google_forms import (
+    GoogleAuthRequiredError,
+    SELECT_ALL_TIMES_COLUMN_LABEL,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -254,41 +257,82 @@ def _extract_selected_labels(answer: dict[str, Any] | None) -> list[str]:
     ]
 
 
+def _resolve_time_pairs(
+    labels: list[str], *, time_slot_labels: list[str]
+) -> list[tuple[str, str]]:
+    """matrix 1 行分の CHECKBOX 選択ラベルを ``(start, end)`` の一覧へ変換する。
+
+    ``SELECT_ALL_TIMES_COLUMN_LABEL``（「終日」列）が選択されていれば、
+    その行は全時間枠を選択したものとして ``time_slot_labels`` 全体を展開する。
+    通常のラベルは ``"HH:MM-HH:MM"`` を ``"-"`` で分解する。
+    """
+    source = time_slot_labels if SELECT_ALL_TIMES_COLUMN_LABEL in labels else labels
+
+    pairs: list[tuple[str, str]] = []
+    for label in source:
+        if "-" not in label:
+            logger.warning(
+                "matrix label '%s' has no '-' separator; skipping",
+                label,
+            )
+            continue
+        start_str, end_str = label.split("-", 1)
+        pairs.append((start_str.strip(), end_str.strip()))
+    return pairs
+
+
 def _parse_availability(
     answers: dict[str, dict[str, Any]],
     *,
     row_question_id_by_date: dict[str, str],
+    time_slot_labels: list[str],
+    select_all_dates_row_question_id: str | None = None,
 ) -> list[Availability]:
     """matrix 回答を ``Availability`` のリストに変換する。
 
     `forms_api_research.md` §4 のパース疑似コードに準拠：
         - 行 questionId に対応する CHECKBOX 値（``HH:MM-HH:MM``）を分解し
           ``date / start / end`` に格納
+
+    加えて、Google Forms のグリッドに一括選択機能が無いことを補うため
+    matrix に組み込んだ2種の「一括選択」を実際の候補日×時間枠へ展開する：
+        - 各日の行の「終日」列 → その日のすべての時間枠として展開
+        - 末尾の「すべての日」行 → 選択された時間枠をすべての候補日へ展開
+    （``_resolve_time_pairs`` / ``app.services.google_forms`` 参照）
     """
-    availability: list[Availability] = []
+    resolved: dict[str, set[tuple[str, str]]] = {
+        date_str: set() for date_str in row_question_id_by_date
+    }
+
     for date_str, row_qid in row_question_id_by_date.items():
         labels = _extract_selected_labels(answers.get(row_qid))
-        for label in labels:
-            if "-" not in label:
-                logger.warning(
-                    "matrix label '%s' has no '-' separator; skipping",
-                    label,
-                )
-                continue
-            start_str, end_str = label.split("-", 1)
+        resolved[date_str].update(
+            _resolve_time_pairs(labels, time_slot_labels=time_slot_labels)
+        )
+
+    if select_all_dates_row_question_id:
+        common_labels = _extract_selected_labels(
+            answers.get(select_all_dates_row_question_id)
+        )
+        common_pairs = _resolve_time_pairs(
+            common_labels, time_slot_labels=time_slot_labels
+        )
+        for date_str in resolved:
+            resolved[date_str].update(common_pairs)
+
+    availability: list[Availability] = []
+    for date_str, pairs in resolved.items():
+        for start_str, end_str in pairs:
             try:
                 availability.append(
-                    Availability(
-                        date=date_str,
-                        start=start_str.strip(),
-                        end=end_str.strip(),
-                    )
+                    Availability(date=date_str, start=start_str, end=end_str)
                 )
             except Exception as exc:  # pydantic ValidationError 含む
                 logger.warning(
-                    "availability validation failed for label '%s' on %s: %s",
-                    label,
+                    "availability validation failed for %s %s-%s: %s",
                     date_str,
+                    start_str,
+                    end_str,
                     exc,
                 )
     return availability
@@ -358,6 +402,8 @@ def _parse_response(
     availability = _parse_availability(
         answers,
         row_question_id_by_date=form_info.row_question_id_by_date,
+        time_slot_labels=form_info.time_slot_labels,
+        select_all_dates_row_question_id=form_info.select_all_dates_row_question_id,
     )
 
     try:

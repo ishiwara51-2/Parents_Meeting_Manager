@@ -39,6 +39,15 @@ from app.services import google_auth
 logger = logging.getLogger(__name__)
 
 
+# matrix に追加する「一括選択」用の特殊な列・行。
+# Google Forms のグリッド質問はネイティブに「行/列の一括選択」を持たないため、
+# 追加の列（＝各日の行に対する「終日OK」）と追加の行（＝各時間枠に対する
+# 「すべての日でOK」）をデータとして matrix に組み込み、回答パース側
+# （app.services.polling._resolve_time_pairs）で実際の候補日×時間枠へ展開する。
+SELECT_ALL_TIMES_COLUMN_LABEL = "終日（すべての時間帯）"
+SELECT_ALL_DATES_ROW_TITLE = "すべての日（共通で使える時間帯があれば）"
+
+
 # ---------------------------------------------------------------------------
 # 例外
 # ---------------------------------------------------------------------------
@@ -104,19 +113,35 @@ def _build_matrix_item(
         - 各 row に ``required=False``（0 枠の日を許容するため。
           全日不可は ``_parse_availability`` が空リストを返すことで自然に扱える）
         - ``shuffleQuestions=False``（日付順を維持）
+
+    Google Forms のグリッドには行/列を一括選択する機能が無いため、
+    ``SELECT_ALL_TIMES_COLUMN_LABEL``（各日の行に追加する「終日」列）と
+    ``SELECT_ALL_DATES_ROW_TITLE``（末尾に追加する「すべての日」行）を
+    通常の列・行として組み込む。回答パース側でこれらのチェックを
+    実際の候補日×時間枠へ展開する。
     """
     return {
         "createItem": {
             "location": {"index": 1},
             "item": {
-                "title": "参加可能な日時にチェックを入れてください（複数選択可、参加不可の日は空欄で可）",
+                "title": (
+                    "参加可能な日時にチェックを入れてください"
+                    "（複数選択可、参加不可の日は空欄で可）。"
+                    f"「{SELECT_ALL_TIMES_COLUMN_LABEL}」にチェックするとその日は"
+                    "すべての時間帯を選択したことになります。"
+                    f"「{SELECT_ALL_DATES_ROW_TITLE}」の行でチェックした時間帯は"
+                    "すべての候補日で選択されます。"
+                ),
                 "questionGroupItem": {
                     "grid": {
                         "columns": {
                             "type": "CHECKBOX",
                             "options": [
                                 {"value": label}
-                                for label in time_slot_labels
+                                for label in [
+                                    *time_slot_labels,
+                                    SELECT_ALL_TIMES_COLUMN_LABEL,
+                                ]
                             ],
                         },
                         "shuffleQuestions": False,
@@ -127,6 +152,12 @@ def _build_matrix_item(
                             "rowQuestion": {"title": date_str},
                         }
                         for date_str in candidate_dates
+                    ]
+                    + [
+                        {
+                            "required": False,
+                            "rowQuestion": {"title": SELECT_ALL_DATES_ROW_TITLE},
+                        }
                     ],
                 },
             },
@@ -181,25 +212,33 @@ def _extract_student_number_qid(batch_response: dict[str, Any]) -> str:
 
 
 def _extract_row_qids_from_batch(
-    batch_response: dict[str, Any],
-) -> list[str]:
+    batch_response: dict[str, Any], *, candidate_dates: list[str]
+) -> tuple[dict[str, str], str | None]:
     """``batchUpdate`` 応答から matrix 行 questionId を取り出す。
 
-    取得できれば候補日順の文字列配列を返す。``forms.get`` フォールバックが
-    必要かどうかの判定にも使う（空配列なら呼び出し元が ``forms.get`` する）。
+    行は ``[*candidate_dates, SELECT_ALL_DATES_ROW_TITLE]`` の順で作成しているため
+    （``_build_matrix_item``）、応答の questionId 配列も同じ順序・件数
+    （候補日数 + 1）である想定で分解する。件数が合わない・空要素を含む場合は
+    ``({}, None)`` を返し、呼び出し元が ``forms.get`` フォールバックへ回す。
     """
     try:
         qid_list = (
             batch_response["replies"][1]["createItem"]["questionId"]
         )
     except (KeyError, IndexError, TypeError):
-        return []
-    return list(qid_list) if qid_list else []
+        return {}, None
+    qid_list = list(qid_list) if qid_list else []
+    if len(qid_list) != len(candidate_dates) + 1 or not all(qid_list):
+        return {}, None
+    row_question_id_by_date = dict(
+        zip(candidate_dates, qid_list[:-1], strict=True)
+    )
+    return row_question_id_by_date, qid_list[-1]
 
 
 def _extract_row_qids_from_form(
     form_get_response: dict[str, Any], *, candidate_dates: list[str]
-) -> dict[str, str]:
+) -> tuple[dict[str, str], str | None]:
     """``forms.get`` 応答から「候補日 → 行 questionId」マップを構築する。
 
     レスポンス構造（`forms_api_research.md` §2 / Forms API リファレンス）::
@@ -211,9 +250,13 @@ def _extract_row_qids_from_form(
                 questions: [
                     { questionId: ..., rowQuestion: { title: "YYYY-MM-DD" } },
                     ...
+                    { questionId: ..., rowQuestion: { title: SELECT_ALL_DATES_ROW_TITLE } },
                 ]
             }}
         ]
+
+    「すべての日」行は ``rowQuestion.title`` で識別し、別枠の戻り値
+    （2 要素目）として返す。
     """
     items = form_get_response.get("items") or []
     for item in items:
@@ -221,16 +264,20 @@ def _extract_row_qids_from_form(
         if not qgi:
             continue
         questions = qgi.get("questions") or []
-        result: dict[str, str] = {}
+        by_title: dict[str, str] = {}
         for q in questions:
             row = q.get("rowQuestion") or {}
-            date_str = row.get("title")
+            title = row.get("title")
             qid = q.get("questionId")
-            if date_str and qid:
-                result[date_str] = qid
-        if result:
+            if title and qid:
+                by_title[title] = qid
+        if by_title:
             # 候補日順に揃え直して返す（候補日に該当しないキーは除外）
-            return {d: result[d] for d in candidate_dates if d in result}
+            row_question_id_by_date = {
+                d: by_title[d] for d in candidate_dates if d in by_title
+            }
+            select_all_dates_qid = by_title.get(SELECT_ALL_DATES_ROW_TITLE)
+            return row_question_id_by_date, select_all_dates_qid
 
     raise RuntimeError(
         "forms.get 応答から matrix 行 questionId が抽出できません。"
@@ -315,16 +362,13 @@ def create_form(project: Project) -> FormInfo:
     # 出席番号 questionId は batchUpdate 応答から必ず取れる想定
     student_number_qid = _extract_student_number_qid(batch_response)
 
-    # 3. matrix 行 questionId は batchUpdate 応答に含まれることもあるが、
-    #    公式リファレンスに明記が無いため、空配列ならフォールバックで forms.get
-    row_qids = _extract_row_qids_from_batch(batch_response)
-    if len(row_qids) == len(candidate_dates) and all(q for q in row_qids):
-        # 候補日順とインデックス対応していると想定（API は createItem の
-        # 順序で questionId 配列を返す）
-        row_question_id_by_date = {
-            date_str: qid
-            for date_str, qid in zip(candidate_dates, row_qids, strict=True)
-        }
+    # 3. matrix 行 questionId（候補日 + 「すべての日」行）は batchUpdate 応答に
+    #    含まれることもあるが、公式リファレンスに明記が無いため、
+    #    取得できなければフォールバックで forms.get
+    row_question_id_by_date, select_all_dates_qid = _extract_row_qids_from_batch(
+        batch_response, candidate_dates=candidate_dates
+    )
+    if row_question_id_by_date:
         logger.debug(
             "matrix row questionIds resolved from batchUpdate response "
             "(forms.get skipped)"
@@ -338,7 +382,7 @@ def create_form(project: Project) -> FormInfo:
         form_get_response: dict[str, Any] = forms_api.get(
             formId=form_id
         ).execute()
-        row_question_id_by_date = _extract_row_qids_from_form(
+        row_question_id_by_date, select_all_dates_qid = _extract_row_qids_from_form(
             form_get_response, candidate_dates=candidate_dates
         )
 
@@ -349,10 +393,13 @@ def create_form(project: Project) -> FormInfo:
         student_number_question_id=student_number_qid,
         row_question_id_by_date=row_question_id_by_date,
         time_slot_labels=time_slot_labels,
+        select_all_dates_row_question_id=select_all_dates_qid,
     )
 
 
 __all__ = [
     "create_form",
     "GoogleAuthRequiredError",
+    "SELECT_ALL_TIMES_COLUMN_LABEL",
+    "SELECT_ALL_DATES_ROW_TITLE",
 ]

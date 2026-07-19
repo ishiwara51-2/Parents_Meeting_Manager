@@ -50,11 +50,16 @@ def _sample_project_payload() -> dict:
     }
 
 
-def _create_project_and_form_json(client: TestClient) -> str:
+def _create_project_and_form_json(
+    client: TestClient, *, with_select_all_row: bool = False
+) -> str:
     """テスト用プロジェクトを作成し、`form.json` を直接ディスクに置く。
 
     Form 作成 API はモックが大変なので、本テストでは ``FileProjectRepository.save_form_info``
     を直接呼び出して `form.json` を保存しておく（Phase 2.2 で動作確認済み）。
+
+    ``with_select_all_row=True`` の場合、matrix 末尾の「すべての日」一括選択行
+    （questionId=``QID_ROW_ALL``）を ``form.json`` に含める。
     """
     resp = client.post("/api/projects", json=_sample_project_payload())
     assert resp.status_code == 201, resp.text
@@ -72,6 +77,7 @@ def _create_project_and_form_json(client: TestClient) -> str:
             "2026-07-16": "QID_ROW_1",
         },
         time_slot_labels=["16:00-16:20", "16:20-16:40"],
+        select_all_dates_row_question_id="QID_ROW_ALL" if with_select_all_row else None,
     )
     repo.save_form_info(project_id, form_info)
     return project_id
@@ -84,6 +90,7 @@ def _make_form_response(
     submitted_at: str = "2026-06-28T15:30:12.000Z",
     row0_slots: list[str] | None = None,
     row1_slots: list[str] | None = None,
+    row_all_slots: list[str] | None = None,
 ) -> dict[str, Any]:
     """Forms API の ``forms.responses.list`` 風レスポンス1件を組み立てる。
 
@@ -91,30 +98,39 @@ def _make_form_response(
 
     - ``answers[<qid>].textAnswers.answers[]`` に ``{value: ...}`` が並ぶ
     - CHECKBOX 行は複数値、TextQuestion は 1 値
+
+    ``row_all_slots`` は matrix 末尾の「すべての日」一括選択行
+    （questionId=``QID_ROW_ALL``）への回答。
     """
+    answers: dict[str, Any] = {
+        "QID_SN": {
+            "questionId": "QID_SN",
+            "textAnswers": {"answers": [{"value": student_number}]},
+        },
+        "QID_ROW_0": {
+            "questionId": "QID_ROW_0",
+            "textAnswers": {
+                "answers": [{"value": v} for v in (row0_slots or [])]
+            },
+        },
+        "QID_ROW_1": {
+            "questionId": "QID_ROW_1",
+            "textAnswers": {
+                "answers": [{"value": v} for v in (row1_slots or [])]
+            },
+        },
+    }
+    if row_all_slots is not None:
+        answers["QID_ROW_ALL"] = {
+            "questionId": "QID_ROW_ALL",
+            "textAnswers": {"answers": [{"value": v} for v in row_all_slots]},
+        }
     return {
         "formId": "FAKE_FORM_ID",
         "responseId": response_id,
         "createTime": submitted_at,
         "lastSubmittedTime": submitted_at,
-        "answers": {
-            "QID_SN": {
-                "questionId": "QID_SN",
-                "textAnswers": {"answers": [{"value": student_number}]},
-            },
-            "QID_ROW_0": {
-                "questionId": "QID_ROW_0",
-                "textAnswers": {
-                    "answers": [{"value": v} for v in (row0_slots or [])]
-                },
-            },
-            "QID_ROW_1": {
-                "questionId": "QID_ROW_1",
-                "textAnswers": {
-                    "answers": [{"value": v} for v in (row1_slots or [])]
-                },
-            },
-        },
+        "answers": answers,
     }
 
 
@@ -503,6 +519,129 @@ def test_sync_responses_parses_matrix_via_row_question_id_map(
     assert triples == {
         ("2026-07-15", "16:00:00", "16:20:00"),
         ("2026-07-15", "16:20:00", "16:40:00"),
+        ("2026-07-16", "16:20:00", "16:40:00"),
+    }
+
+
+# ---------------------------------------------------------------------------
+# 4b. 「終日」列の一括選択：その日のすべての時間枠へ展開される
+# ---------------------------------------------------------------------------
+
+
+def test_sync_responses_expands_select_all_times_column(
+    isolated_data_root: Path, fake_creds: object
+) -> None:
+    """行（候補日）の「終日（すべての時間帯）」列がチェックされた場合、
+    その日の個別チェックの有無にかかわらず、その日の全時間枠が
+    availability に展開される。
+    """
+    from app.services import polling
+    from app.services.google_forms import SELECT_ALL_TIMES_COLUMN_LABEL
+
+    resp_resource = _FakeResponsesResource(
+        [
+            {
+                "responses": [
+                    _make_form_response(
+                        response_id="R1",
+                        student_number="1",
+                        # 2026-07-15: 「終日」のみチェック（個別枠は未チェック）
+                        row0_slots=[SELECT_ALL_TIMES_COLUMN_LABEL],
+                        # 2026-07-16: 通常どおり 1 枠のみ選択
+                        row1_slots=["16:20-16:40"],
+                    ),
+                ]
+            }
+        ]
+    )
+
+    with TestClient(create_app()) as client:
+        project_id = _create_project_and_form_json(client)
+        with (
+            patch(
+                "app.services.polling.google_auth.get_valid_credentials",
+                return_value=fake_creds,
+            ),
+            patch(
+                "app.services.polling.build",
+                return_value=_make_service_with_responses(resp_resource),
+            ),
+            patch("app.services.polling.time.sleep"),
+        ):
+            polling.sync_responses(project_id)
+
+    settings = get_settings()
+    sn1_dir = settings.projects_dir / project_id / "responses" / "1"
+    saved = json.loads(next(sn1_dir.glob("*.json")).read_text(encoding="utf-8"))
+
+    triples = {(a["date"], a["start"], a["end"]) for a in saved["availability"]}
+    assert triples == {
+        # 「終日」展開により 2026-07-15 は 2 枠とも選択されたことになる
+        ("2026-07-15", "16:00:00", "16:20:00"),
+        ("2026-07-15", "16:20:00", "16:40:00"),
+        ("2026-07-16", "16:20:00", "16:40:00"),
+    }
+
+
+# ---------------------------------------------------------------------------
+# 4c. 「すべての日」行の一括選択：チェックした時間枠が全候補日へ展開される
+# ---------------------------------------------------------------------------
+
+
+def test_sync_responses_expands_select_all_dates_row(
+    isolated_data_root: Path, fake_creds: object
+) -> None:
+    """matrix 末尾の「すべての日」行でチェックした時間枠は、
+    各候補日の個別選択と統合（和集合）されて availability に展開される。
+    """
+    from app.services import polling
+
+    resp_resource = _FakeResponsesResource(
+        [
+            {
+                "responses": [
+                    _make_form_response(
+                        response_id="R1",
+                        student_number="1",
+                        # 2026-07-15 は個別に 1 枠だけ選択済み
+                        row0_slots=["16:00-16:20"],
+                        row1_slots=[],
+                        # 「すべての日」行で 16:20-16:40 をチェック
+                        # → 2026-07-15 / 2026-07-16 の両方に適用される
+                        row_all_slots=["16:20-16:40"],
+                    ),
+                ]
+            }
+        ]
+    )
+
+    with TestClient(create_app()) as client:
+        project_id = _create_project_and_form_json(
+            client, with_select_all_row=True
+        )
+        with (
+            patch(
+                "app.services.polling.google_auth.get_valid_credentials",
+                return_value=fake_creds,
+            ),
+            patch(
+                "app.services.polling.build",
+                return_value=_make_service_with_responses(resp_resource),
+            ),
+            patch("app.services.polling.time.sleep"),
+        ):
+            polling.sync_responses(project_id)
+
+    settings = get_settings()
+    sn1_dir = settings.projects_dir / project_id / "responses" / "1"
+    saved = json.loads(next(sn1_dir.glob("*.json")).read_text(encoding="utf-8"))
+
+    triples = {(a["date"], a["start"], a["end"]) for a in saved["availability"]}
+    assert triples == {
+        # 2026-07-15: 個別選択（16:00-16:20）+「すべての日」展開（16:20-16:40）
+        ("2026-07-15", "16:00:00", "16:20:00"),
+        ("2026-07-15", "16:20:00", "16:40:00"),
+        # 2026-07-16: 「すべての日」展開のみ
         ("2026-07-16", "16:20:00", "16:40:00"),
     }
 

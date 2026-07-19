@@ -70,7 +70,14 @@ class FormInfo(BaseModel):
         default_factory=list,
         description=(
             "Form 生成時に使った時間枠ラベル (HH:MM-HH:MM) の順序付きリスト。"
-            "回答パース時の整合性確認用"
+            "回答パース時の整合性確認、および「終日」選択の展開に使用"
+        ),
+    )
+    select_all_dates_row_question_id: str | None = Field(
+        default=None,
+        description=(
+            "matrix 末尾に追加した「すべての日」行の questionId。"
+            "この行でチェックされた時間枠は、回答パース時に全候補日へ展開される"
         ),
     )
 
