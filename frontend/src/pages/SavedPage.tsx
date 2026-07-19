@@ -9,6 +9,10 @@
  * Phase 5.2 実装:
  * - handleDownloadPdf: /api/projects/{id}/pdf を fetch → Blob → a タグ click でダウンロード
  * - downloading / downloadError state 追加
+ *
+ * Excel出力実装:
+ * - handleDownloadExcel: /api/projects/{id}/excel を fetch → Blob → a タグ click でダウンロード
+ * - downloadingExcel / downloadExcelError state 追加（PDFとは独立管理）
  */
 
 import { useState } from 'react'
@@ -25,6 +29,11 @@ export default function SavedPage() {
 
   const [downloading, setDownloading] = useState(false)
   const [downloadError, setDownloadError] = useState<string | null>(null)
+
+  const [downloadingExcel, setDownloadingExcel] = useState(false)
+  const [downloadExcelError, setDownloadExcelError] = useState<string | null>(
+    null,
+  )
 
   async function handleDownloadPdf() {
     if (!projectId) return
@@ -52,6 +61,35 @@ export default function SavedPage() {
       setDownloadError(e.message ?? 'PDFダウンロードに失敗しました')
     } finally {
       setDownloading(false)
+    }
+  }
+
+  async function handleDownloadExcel() {
+    if (!projectId) return
+    setDownloadingExcel(true)
+    setDownloadExcelError(null)
+    try {
+      const res = await fetch(`/api/projects/${projectId}/excel`)
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({ detail: res.statusText }))
+        throw new Error(
+          typeof body.detail === 'string'
+            ? body.detail
+            : 'Excelの取得に失敗しました',
+        )
+      }
+      const blob = await res.blob()
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `schedule_${projectId}.xlsx`
+      a.click()
+      URL.revokeObjectURL(url)
+    } catch (err) {
+      const e = err as Error
+      setDownloadExcelError(e.message ?? 'Excelダウンロードに失敗しました')
+    } finally {
+      setDownloadingExcel(false)
     }
   }
 
@@ -92,7 +130,7 @@ export default function SavedPage() {
                 日程案が保存されました
               </h2>
               <p className="text-sm text-fg-muted">
-                PDF として出力するか、再編集できます。
+                PDF・Excel として出力するか、再編集できます。
               </p>
             </div>
           </div>
@@ -101,6 +139,11 @@ export default function SavedPage() {
         {downloadError != null && (
           <Alert variant="error" title="PDF出力エラー">
             {downloadError}
+          </Alert>
+        )}
+        {downloadExcelError != null && (
+          <Alert variant="error" title="Excel出力エラー">
+            {downloadExcelError}
           </Alert>
         )}
         {unlockError != null && (
@@ -117,6 +160,14 @@ export default function SavedPage() {
             disabled={downloading}
           >
             {downloading ? 'ダウンロード中...' : 'PDF出力'}
+          </Button>
+          <Button
+            variant="primary"
+            size="lg"
+            onClick={handleDownloadExcel}
+            disabled={downloadingExcel}
+          >
+            {downloadingExcel ? 'ダウンロード中...' : 'Excel出力'}
           </Button>
           <Button
             variant="secondary"

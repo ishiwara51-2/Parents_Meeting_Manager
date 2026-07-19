@@ -145,6 +145,53 @@ describe('SavedPage', () => {
     })
   })
 
+  it('「Excel出力」ボタンが表示される', () => {
+    renderSavedPage()
+    expect(screen.getByRole('button', { name: 'Excel出力' })).toBeInTheDocument()
+  })
+
+  it('「Excel出力」ボタンクリック時に /api/projects/${id}/excel への fetch が呼ばれる', async () => {
+    const mockFetch = vi.fn().mockResolvedValue({
+      ok: true,
+      blob: () =>
+        Promise.resolve(
+          new Blob(['PK-fake'], {
+            type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+          }),
+        ),
+    })
+    vi.stubGlobal('fetch', mockFetch)
+    vi.stubGlobal('URL', {
+      ...URL,
+      createObjectURL: vi.fn().mockReturnValue('blob:http://localhost/test-excel'),
+      revokeObjectURL: vi.fn(),
+    })
+
+    renderSavedPage()
+    fireEvent.click(screen.getByRole('button', { name: 'Excel出力' }))
+
+    await waitFor(() => {
+      expect(mockFetch).toHaveBeenCalledWith(`/api/projects/${PROJECT_ID}/excel`)
+    })
+  })
+
+  it('Excel取得失敗時にエラー表示が出る', async () => {
+    const mockFetch = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 404,
+      statusText: 'Not Found',
+      json: () => Promise.resolve({ detail: 'ドラフトが見つかりません' }),
+    })
+    vi.stubGlobal('fetch', mockFetch)
+
+    renderSavedPage()
+    fireEvent.click(screen.getByRole('button', { name: 'Excel出力' }))
+
+    await waitFor(() => {
+      expect(screen.getByRole('alert')).toBeInTheDocument()
+    })
+  })
+
   it('「再編集」ボタンクリックで draftsApi.unlock が正しい projectId で呼ばれる', async () => {
     vi.mocked(api.draftsApi.unlock).mockResolvedValue(MOCK_DRAFT)
     renderSavedPage()

@@ -26,6 +26,7 @@ from starlette.middleware.sessions import SessionMiddleware
 
 from app.api.auth import router as auth_router
 from app.api.drafts import router as drafts_router
+from app.api.excel import router as excel_router
 from app.api.forms import router as forms_router
 from app.api.pdf import router as pdf_router
 from app.api.projects import router as projects_router
@@ -99,6 +100,7 @@ def create_app() -> FastAPI:
     application.include_router(schedule_router)
     application.include_router(drafts_router)
     application.include_router(pdf_router)
+    application.include_router(excel_router)
 
     # ===== フロントエンド静的ファイル配信（Phase 4.1）=====
     # requirements.md §2.2 の本番モード起動（start.ps1）で使用。
