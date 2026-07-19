@@ -186,7 +186,8 @@ export default function ProjectPage() {
       return 'pending'
     }
     if (stepIdx === 2) {
-      if (draftSaved) return 'done'
+      // ドラフト保存後も「確認・修正」は常に未完了扱い（再修正の余地があるため）
+      if (draftSaved) return 'active'
       if (allResponsesIn || receivedCount > 0) return 'active'
       return 'pending'
     }
@@ -211,7 +212,7 @@ export default function ProjectPage() {
     },
     {
       key: 'schedule',
-      label: '日程案作成',
+      label: draftSaved ? '確認・修正' : '日程案作成',
       state: stateOf(2),
     },
     {
@@ -221,13 +222,47 @@ export default function ProjectPage() {
     },
   ]
 
-  // 次のアクションを判定
-  const nextActionLabel = !formDone
-    ? 'Google Formを作成する'
+  // 次のアクションを判定（ラベル＋クリック先）
+  //  - 同ページ内のセクションは id でスクロール
+  //  - 別ページ（日程案画面）はルーティングで遷移
+  type NextStepTarget =
+    | { kind: 'scroll'; elementId: string }
+    | { kind: 'navigate'; to: string }
+  const nextAction: { label: string; target: NextStepTarget } = !formDone
+    ? {
+        label: 'Google Formを作成する',
+        target: { kind: 'scroll', elementId: 'form-section' },
+      }
     : !allResponsesIn && receivedCount === 0
-      ? '保護者の回答を待っています'
-      : '面談日程案を作成する'
+      ? {
+          label: '保護者の回答を待っています',
+          target: { kind: 'scroll', elementId: 'responses-section' },
+        }
+      : draftSaved
+        ? {
+            label: '現在のドラフトを確認・修正する',
+            target: {
+              kind: 'navigate',
+              to: `/projects/${projectId}/schedule`,
+            },
+          }
+        : {
+            label: '面談日程案を作成する',
+            target: {
+              kind: 'navigate',
+              to: `/projects/${projectId}/schedule`,
+            },
+          }
   const nextActionDisabled = !formDone || (!allResponsesIn && receivedCount === 0)
+
+  const handleNextStepClick = () => {
+    if (nextAction.target.kind === 'navigate') {
+      navigate(nextAction.target.to)
+      return
+    }
+    const el = document.getElementById(nextAction.target.elementId)
+    el?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  }
 
   return (
     <AppShell
@@ -241,7 +276,13 @@ export default function ProjectPage() {
           <Stepper steps={steps} />
           <div className="mt-3 pt-3 border-t border-border text-sm text-fg-muted text-center">
             次のステップ:{' '}
-            <span className="font-semibold text-fg">{nextActionLabel}</span>
+            <button
+              type="button"
+              onClick={handleNextStepClick}
+              className="font-semibold text-brand-700 hover:text-brand-900 hover:underline transition-colors"
+            >
+              {nextAction.label}
+            </button>
           </div>
         </Card>
 
@@ -273,7 +314,7 @@ export default function ProjectPage() {
         </Card>
 
         {/* Google Form セクション */}
-        <Card>
+        <Card id="form-section">
           <CardHeader
             title="候補日程聴取用 Google Form"
             description="保護者に候補日程を聞くための Google Form を作成・共有します。"
@@ -350,7 +391,7 @@ export default function ProjectPage() {
         </Card>
 
         {/* 受領状況 */}
-        <Card>
+        <Card id="responses-section">
           <CardHeader
             title="受領状況"
             description="保護者からの回答状況です。自動で 60 秒ごとに更新されます。"
@@ -434,7 +475,7 @@ export default function ProjectPage() {
               onClick={() => navigate(`/projects/${projectId}/schedule`)}
               disabled={nextActionDisabled}
             >
-              面談日程案作成
+              {draftSaved ? '確認・修正' : '面談日程案作成'}
             </Button>
             <Button
               variant="secondary"
