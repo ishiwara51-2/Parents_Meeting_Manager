@@ -8,11 +8,12 @@
  * - student_numbers（出席番号リスト、カンマ区切り）
  */
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { useMutation } from '@tanstack/react-query'
+import { useMutation, useQuery } from '@tanstack/react-query'
 import type { FormEvent } from 'react'
-import { projectsApi } from '../api'
+import { projectsApi, rulesApi } from '../api'
+import type { Rules } from '../api'
 import {
   Alert,
   AppShell,
@@ -338,26 +339,46 @@ export default function ProjectNewPage() {
   const [rangeStart, setRangeStart] = useState('')
   const [rangeEnd, setRangeEnd] = useState('')
   const [studentNumbersText, setStudentNumbersText] = useState('')
+  const [localRules, setLocalRules] = useState<Rules | null>(null)
   const [fieldErrors, setFieldErrors] = useState<Partial<Record<FieldKey, string>>>(
     {},
   )
   const [validationError, setValidationError] = useState('')
 
+  const { data: globalRules, isLoading: rulesLoading } = useQuery({
+    queryKey: ['global-rules'],
+    queryFn: rulesApi.getGlobal,
+  })
+
+  useEffect(() => {
+    if (globalRules && localRules === null) {
+      setLocalRules(globalRules)
+    }
+  }, [globalRules, localRules])
+
+  const updateGlobalConstraint = <K extends keyof Rules['global_constraints']>(
+    key: K,
+    value: Rules['global_constraints'][K],
+  ) => {
+    setLocalRules((prev) =>
+      prev
+        ? {
+            ...prev,
+            global_constraints: { ...prev.global_constraints, [key]: value },
+          }
+        : prev,
+    )
+  }
+
   const mutation = useMutation({
     mutationFn: projectsApi.create,
-    onSuccess: (project) => {
-      navigate(`/projects/${project.project_id}`)
-    },
-    onError: (err: Error) => {
-      setValidationError(err.message ?? '作成に失敗しました')
-    },
   })
 
   const studentParse = parseStudentNumbers(studentNumbersText)
   const rangeResult = expandStudentNumberRange(rangeStart, rangeEnd)
   const slicePreview = sliceTimeRange(startTime, endTime, slotMinutes)
 
-  const handleSubmit = (e: FormEvent<HTMLFormElement>) => {
+  const handleSubmit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault()
     setValidationError('')
 
@@ -396,13 +417,28 @@ export default function ProjectNewPage() {
       return
     }
 
-    mutation.mutate({
-      display_name: displayName.trim(),
-      slot_minutes: slotMinutes,
-      candidate_dates: dates,
-      candidate_time_slots: timeSlots,
-      student_numbers: studentNumbers,
-    })
+    try {
+      const project = await mutation.mutateAsync({
+        display_name: displayName.trim(),
+        slot_minutes: slotMinutes,
+        candidate_dates: dates,
+        candidate_time_slots: timeSlots,
+        student_numbers: studentNumbers,
+      })
+
+      if (localRules) {
+        try {
+          await rulesApi.putProject(project.project_id, localRules)
+        } catch {
+          // ルール保存に失敗してもプロジェクト作成自体は成功しているため遷移は継続する
+          // （プロジェクト作成後に「ルール設定」画面から再設定できる）
+        }
+      }
+
+      navigate(`/projects/${project.project_id}`)
+    } catch (err) {
+      setValidationError((err as Error).message ?? '作成に失敗しました')
+    }
   }
 
   return (
@@ -741,6 +777,85 @@ export default function ProjectNewPage() {
                 </div>
               )}
             </>
+          )}
+        </Card>
+
+        <Card>
+          <CardHeader
+            title="ルール設定"
+            description="面談スケジューリングに適用するルールです。グローバル設定の値で初期化されます。プロジェクト作成後も「ルール設定」画面から変更できます。"
+          />
+
+          {rulesLoading || !localRules ? (
+            <p className="text-sm text-fg-muted">読み込み中...</p>
+          ) : (
+            <div className="flex flex-wrap items-end gap-4">
+              <FormField
+                label="最大連続コマ数"
+                htmlFor="max-consecutive-slots"
+                hint="この数を超えた連続面談は許可されません。"
+                className="mb-0"
+              >
+                <Input
+                  id="max-consecutive-slots"
+                  type="number"
+                  value={localRules.global_constraints.max_consecutive_slots}
+                  onChange={(e) =>
+                    updateGlobalConstraint(
+                      'max_consecutive_slots',
+                      Number(e.target.value),
+                    )
+                  }
+                  min={1}
+                  max={20}
+                  className="w-24"
+                />
+              </FormField>
+
+              <FormField
+                label="強制空きコマ数"
+                htmlFor="forced-break-slots"
+                hint="連続上限に達した後、必ず空けるコマの数です。"
+                className="mb-0"
+              >
+                <Input
+                  id="forced-break-slots"
+                  type="number"
+                  value={localRules.global_constraints.forced_break_slots}
+                  onChange={(e) =>
+                    updateGlobalConstraint(
+                      'forced_break_slots',
+                      Number(e.target.value),
+                    )
+                  }
+                  min={0}
+                  max={5}
+                  className="w-24"
+                />
+              </FormField>
+
+              <FormField
+                label="1日あたりコマ数上限"
+                htmlFor="max-slots-per-day"
+                hint="1日に割り当てる面談コマの上限です。"
+                className="mb-0"
+              >
+                <Input
+                  id="max-slots-per-day"
+                  type="number"
+                  value={localRules.global_constraints.max_slots_per_day}
+                  onChange={(e) =>
+                    updateGlobalConstraint(
+                      'max_slots_per_day',
+                      Number(e.target.value),
+                    )
+                  }
+                  min={1}
+                  max={50}
+                  className="w-24"
+                />
+              </FormField>
+            </div>
           )}
         </Card>
 

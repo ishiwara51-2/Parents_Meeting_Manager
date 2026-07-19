@@ -15,7 +15,21 @@ vi.mock('../src/api', () => ({
   projectsApi: {
     create: vi.fn(),
   },
+  rulesApi: {
+    getGlobal: vi.fn(),
+    putProject: vi.fn(),
+  },
 }))
+
+const MOCK_RULES = {
+  global_constraints: {
+    max_consecutive_slots: 3,
+    forced_break_slots: 1,
+    max_slots_per_day: 20,
+    teacher_unavailable: [],
+  },
+  student_constraints: [],
+}
 
 function renderWithProviders(ui: ReactElement) {
   const queryClient = new QueryClient({
@@ -53,6 +67,7 @@ function renderWithRoutes() {
 describe('ProjectNewPage', () => {
   beforeEach(() => {
     vi.resetAllMocks()
+    vi.mocked(api.rulesApi.getGlobal).mockResolvedValue(MOCK_RULES)
   })
 
   it('プロジェクト名入力フィールドが存在する', () => {
@@ -114,6 +129,9 @@ describe('ProjectNewPage', () => {
     await user.type(screen.getByLabelText('開始番号'), '1')
     await user.type(screen.getByLabelText('終了番号'), '3')
 
+    // グローバルルールの読み込み完了を待つ
+    await screen.findByLabelText('最大連続コマ数')
+
     // 作成ボタンをクリック
     const submitButton = screen.getByRole('button', { name: '作成' })
     await user.click(submitButton)
@@ -121,6 +139,59 @@ describe('ProjectNewPage', () => {
     // プロジェクト画面に遷移していることを確認
     await waitFor(() => {
       expect(screen.getByTestId('project-page')).toBeInTheDocument()
+    })
+
+    // 作成時のルール設定（グローバルルール初期値）がプロジェクトに保存されている
+    expect(api.rulesApi.putProject).toHaveBeenCalledWith(
+      'new-project-id',
+      MOCK_RULES,
+    )
+  })
+
+  it('作成時にルール設定（連続コマ数など）を変更できる', async () => {
+    vi.mocked(api.projectsApi.create).mockResolvedValue({
+      project_id: 'new-project-id',
+      display_name: 'テスト面談',
+      created_at: '2026-07-01T10:00:00+09:00',
+      status: 'in_progress',
+      slot_minutes: 20,
+      candidate_dates: ['2026-07-15'],
+      candidate_time_slots: [{ start: '16:00', end: '16:20' }],
+      student_numbers: [1, 2, 3],
+    })
+
+    const user = userEvent.setup()
+    renderWithRoutes()
+
+    await user.type(screen.getByLabelText(/プロジェクト名/), 'テスト面談')
+
+    await waitFor(() => {
+      expect(screen.getByTestId('candidate-dates-calendar')).toBeInTheDocument()
+    })
+    const anyDayButton = screen
+      .getAllByTestId(/^calendar-day-/)
+      .find((el) => !el.hasAttribute('disabled'))
+    await user.click(anyDayButton!)
+
+    await user.type(screen.getByLabelText('開始番号'), '1')
+    await user.type(screen.getByLabelText('終了番号'), '3')
+
+    const maxConsecutiveInput = await screen.findByLabelText('最大連続コマ数')
+    await user.clear(maxConsecutiveInput)
+    await user.type(maxConsecutiveInput, '5')
+
+    await user.click(screen.getByRole('button', { name: '作成' }))
+
+    await waitFor(() => {
+      expect(screen.getByTestId('project-page')).toBeInTheDocument()
+    })
+
+    expect(api.rulesApi.putProject).toHaveBeenCalledWith('new-project-id', {
+      ...MOCK_RULES,
+      global_constraints: {
+        ...MOCK_RULES.global_constraints,
+        max_consecutive_slots: 5,
+      },
     })
   })
 
