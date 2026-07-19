@@ -264,6 +264,12 @@ export default function ProjectPage() {
     el?.scrollIntoView({ behavior: 'smooth', block: 'start' })
   }
 
+  // アクティブなステップのノードをクリックしても「次のステップ」と同じ場所へ
+  // 遷移できるようにする（ナビゲーションバー上のショートカット）。
+  const stepsWithClick: Step[] = steps.map((step) =>
+    step.state === 'active' ? { ...step, onClick: handleNextStepClick } : step,
+  )
+
   return (
     <AppShell
       breadcrumbs={[{ label: 'プロジェクト' }]}
@@ -273,7 +279,7 @@ export default function ProjectPage() {
       <div className="flex flex-col gap-5">
         {/* ステッパー：ワークフロー進捗 */}
         <Card padding="md">
-          <Stepper steps={steps} />
+          <Stepper steps={stepsWithClick} />
           <div className="mt-3 pt-3 border-t border-border text-sm text-fg-muted text-center">
             次のステップ:{' '}
             <button

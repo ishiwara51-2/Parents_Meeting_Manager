@@ -9,6 +9,8 @@ export interface Step {
   /** ステップ右側に出す小さな補足（例: "3/12"）*/
   hint?: ReactNode
   state: StepState
+  /** 指定すると、このステップのノードをクリック/Enterで遷移できるようにする */
+  onClick?: () => void
 }
 
 interface StepperProps {
@@ -45,13 +47,22 @@ export function Stepper({ steps, className }: StepperProps) {
     >
       {steps.map((step, i) => {
         const isLast = i === steps.length - 1
+        const Wrapper = step.onClick ? 'button' : 'div'
         return (
           <li
             key={step.key}
             className="flex items-start gap-0 flex-1 min-w-[80px]"
             aria-current={step.state === 'active' ? 'step' : undefined}
           >
-            <div className="flex flex-col items-center gap-1.5 shrink-0 w-full">
+            <Wrapper
+              type={step.onClick ? 'button' : undefined}
+              onClick={step.onClick}
+              className={cn(
+                'flex flex-col items-center gap-1.5 shrink-0 w-full',
+                step.onClick &&
+                  'appearance-none bg-transparent border-0 p-0 m-0 font-inherit text-inherit cursor-pointer rounded-md hover:opacity-80 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-600 transition-opacity',
+              )}
+            >
               <div className="flex items-center w-full">
                 <div className="flex-1 h-0.5" aria-hidden="true">
                   {i > 0 && (
@@ -105,7 +116,7 @@ export function Stepper({ steps, className }: StepperProps) {
                   </span>
                 )}
               </div>
-            </div>
+            </Wrapper>
           </li>
         )
       })}

@@ -11,7 +11,7 @@
  *   - ルールカスタマイズ / 面談日程案作成ボタン
  */
 
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { MemoryRouter, Routes, Route } from 'react-router-dom'
@@ -208,5 +208,57 @@ describe('ProjectPage', () => {
     renderProjectPage()
     expect(spy).toHaveBeenCalledWith(expect.any(Function), 60_000)
     spy.mockRestore()
+  })
+
+  describe('ステッパーのアクティブノードクリック', () => {
+    it('Form未作成時、ステッパーの「Form作成」ノードをクリックするとForm作成セクションへスクロールする', async () => {
+      const user = userEvent.setup()
+      const scrollIntoViewMock = vi.fn()
+      Element.prototype.scrollIntoView = scrollIntoViewMock
+      renderProjectPage()
+
+      const stepper = await screen.findByRole('list', { name: '進捗ステップ' })
+      const stepNode = within(stepper).getByRole('button', {
+        name: /Form作成/,
+      })
+      await user.click(stepNode)
+
+      expect(scrollIntoViewMock).toHaveBeenCalled()
+    })
+
+    it('ドラフト保存済み時、ステッパーの「確認・修正」ノードをクリックすると日程案画面へ遷移する', async () => {
+      const user = userEvent.setup()
+      vi.mocked(api.projectsApi.get).mockResolvedValue({
+        ...MOCK_PROJECT,
+        status: 'draft_saved',
+      })
+      vi.mocked(api.formApi.get).mockResolvedValue(MOCK_FORM_INFO)
+      vi.mocked(api.responsesApi.status).mockResolvedValue({
+        project_id: PROJECT_ID,
+        received: [1, 2, 3, 4, 5],
+        pending: [],
+      })
+      renderProjectPage()
+
+      const stepper = await screen.findByRole('list', { name: '進捗ステップ' })
+      const stepNode = within(stepper).getByRole('button', {
+        name: /確認・修正/,
+      })
+      await user.click(stepNode)
+
+      await waitFor(() => {
+        expect(screen.getByTestId('schedule-page')).toBeInTheDocument()
+      })
+    })
+
+    it('未完了のステップノードはボタンとしてクリックできない', async () => {
+      renderProjectPage()
+      const stepper = await screen.findByRole('list', { name: '進捗ステップ' })
+
+      // 「回答収集」(pending) はクリック不可のため button role を持たない
+      expect(
+        within(stepper).queryByRole('button', { name: /回答収集/ }),
+      ).not.toBeInTheDocument()
+    })
   })
 })
