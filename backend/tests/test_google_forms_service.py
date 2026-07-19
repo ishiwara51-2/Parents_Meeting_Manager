@@ -27,6 +27,7 @@ from fastapi.testclient import TestClient
 from app.config import get_settings
 from app.main import create_app
 from app.services.google_forms import (
+    FORM_DESCRIPTION,
     SELECT_ALL_DATES_ROW_TITLE,
     SELECT_ALL_TIMES_COLUMN_LABEL,
 )
@@ -89,6 +90,7 @@ class FakeFormsApi:
                         "questionId": ["QID_COMMENT"],
                     }
                 },
+                {"updateFormInfo": {}},
             ]
         }
         # forms.get() のデフォルト応答（フォールバック用に各行 questionId を含む）
@@ -211,10 +213,12 @@ def test_create_form_sends_correct_batch_update_requests(
     """POST /api/projects/{id}/form は
 
     - ``forms.create`` を ``info.title`` 付きで呼ぶ
-    - ``forms.batchUpdate`` で 3 件の ``createItem`` を送る
+    - ``forms.batchUpdate`` で 4 件のリクエストを送る
         1. 出席番号 ``TextQuestion(paragraph=False)`` + ``required=True``
         2. matrix ``QuestionGroupItem`` + ``Grid(columns.type=CHECKBOX)``
         3. 自由記述コメント ``TextQuestion(paragraph=False)`` + ``required=False``
+        4. ``updateFormInfo`` で Form 説明文（複数回送信時は最新回答が
+           採用される旨の注記）を設定
     """
     fake_api = FakeFormsApi()
 
@@ -245,8 +249,8 @@ def test_create_form_sends_correct_batch_update_requests(
     )
     body = fake_api.batch_update_called_with["body"]
     requests = body["requests"]
-    assert len(requests) == 3, (
-        f"createItem は 3 件（TextQuestion + matrix + コメント）であるべき: {requests}"
+    assert len(requests) == 4, (
+        f"リクエストは4件（TextQuestion + matrix + コメント + updateFormInfo）であるべき: {requests}"
     )
 
     # 1 件目: 出席番号 TextQuestion
@@ -265,6 +269,11 @@ def test_create_form_sends_correct_batch_update_requests(
     comment_question = comment_req["item"]["questionItem"]["question"]
     assert comment_question["required"] is False
     assert comment_question["textQuestion"]["paragraph"] is False
+
+    # 4 件目: Form 説明文更新（複数回送信時は最新回答が採用される旨の注記）
+    update_info_req = requests[3]["updateFormInfo"]
+    assert update_info_req["info"]["description"] == FORM_DESCRIPTION
+    assert "description" in update_info_req["updateMask"]
 
 
 # ---------------------------------------------------------------------------
@@ -400,6 +409,7 @@ def test_forms_get_skipped_when_batch_response_includes_row_question_ids(
                         "questionId": ["QID_COMMENT"],
                     }
                 },
+                {"updateFormInfo": {}},
             ]
         }
     )

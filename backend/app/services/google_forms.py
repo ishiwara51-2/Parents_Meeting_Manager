@@ -8,9 +8,10 @@ API 呼び出しシーケンス（公式の標準パターン）::
 
     1. forms.create(body={"info": {"title": ...}})
        → タイトルだけ確定。タイトル以外のフィールドはコピーされない仕様
-    2. forms.batchUpdate(formId, body={"requests": [createItem×3]})
+    2. forms.batchUpdate(formId, body={"requests": [createItem×3, updateFormInfo]})
        → 出席番号 TextQuestion、候補日×時間枠 matrix、自由記述コメント
-         TextQuestion を追加
+         TextQuestion を追加し、続けて Form 説明文（複数回送信時は最新回答が
+         採用される旨の注記）を updateFormInfo で設定
     3. （フォールバック）forms.get(formId)
        → batchUpdate の応答に matrix の行 questionId が含まれない場合のみ
          実機 API での挙動が公式リファレンスに明記されていないリスクへの保険
@@ -53,6 +54,15 @@ SELECT_ALL_DATES_ROW_TITLE = "すべての日（共通で使える時間帯が�
 # ``app.services.polling._sanitize_comment`` でサーバ側のみ行う。
 COMMENT_QUESTION_TITLE = "面談についてのご要望・コメント（任意）"
 COMMENT_MAX_LENGTH = 100
+
+# Form 説明文（タイトル直下に表示）。同じ出席番号で複数回送信された場合の
+# 取り扱いをあらかじめ周知する（``app.repositories.file_repository.
+# list_latest_per_student`` が submitted_at 最新の回答のみを採用する仕様）。
+FORM_DESCRIPTION = (
+    "同じ出席番号で2回以上回答を送信した場合、日程調整には"
+    "最後に送信した内容のみが使用されます（古い回答は無視されます）。"
+    "内容を修正したい場合は、このFormから再度送信してください。"
+)
 
 
 # ---------------------------------------------------------------------------
@@ -200,15 +210,30 @@ def _build_comment_item() -> dict[str, Any]:
     }
 
 
+def _build_update_form_info_request() -> dict[str, Any]:
+    """Form 説明文（``FORM_DESCRIPTION``）を設定する ``updateFormInfo`` リクエストを組み立てる。
+
+    ``forms.create`` は ``info.title`` 以外を無視する仕様（`forms_api_research.md`
+    §2.1）のため、説明文は ``batchUpdate`` の ``updateFormInfo`` で別途設定する。
+    """
+    return {
+        "updateFormInfo": {
+            "info": {"description": FORM_DESCRIPTION},
+            "updateMask": "description",
+        }
+    }
+
+
 def _build_batch_update_body(
     *, candidate_dates: list[str], time_slot_labels: list[str]
 ) -> dict[str, Any]:
     """``forms.batchUpdate`` リクエスト本体を組み立てる。
 
     インデックス 0 = 出席番号 TextQuestion、インデックス 1 = matrix、
-    インデックス 2 = 自由記述コメント TextQuestion。
+    インデックス 2 = 自由記述コメント TextQuestion、インデックス 3 = Form 説明文更新。
     順序は ``form.json`` 保存時の ``row_question_id_by_date`` 復元にも依存する
-    （matrix は常にインデックス 1 に固定する）。
+    （matrix は常にインデックス 1 に固定する）。説明文更新は既存の抽出処理が
+    参照しない末尾に追加しているため、他のインデックスに影響しない。
     """
     return {
         "requests": [
@@ -218,6 +243,7 @@ def _build_batch_update_body(
                 time_slot_labels=time_slot_labels,
             ),
             _build_comment_item(),
+            _build_update_form_info_request(),
         ]
     }
 
@@ -469,4 +495,5 @@ __all__ = [
     "SELECT_ALL_TIMES_COLUMN_LABEL",
     "SELECT_ALL_DATES_ROW_TITLE",
     "COMMENT_MAX_LENGTH",
+    "FORM_DESCRIPTION",
 ]
