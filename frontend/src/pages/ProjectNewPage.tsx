@@ -291,7 +291,40 @@ function parseStudentNumbers(text: string): {
   }
 }
 
-type FieldKey = 'displayName' | 'candidateDates' | 'timeSlots'
+type StudentNumberMode = 'range' | 'list'
+
+/**
+ * 開始番号・終了番号（連番）から出席番号一覧を生成する。
+ * 未入力の場合は numbers: [] / error: null（未入力エラーは submit 時に判定）。
+ */
+function expandStudentNumberRange(
+  startText: string,
+  endText: string,
+): { numbers: number[]; error: string | null } {
+  if (startText.trim() === '' || endText.trim() === '') {
+    return { numbers: [], error: null }
+  }
+
+  const start = Number(startText)
+  const end = Number(endText)
+
+  if (!Number.isInteger(start) || !Number.isInteger(end) || start <= 0 || end <= 0) {
+    return { numbers: [], error: '開始番号・終了番号は正の整数で入力してください' }
+  }
+  if (end < start) {
+    return { numbers: [], error: '終了番号は開始番号以上の値にしてください' }
+  }
+
+  const numbers: number[] = []
+  for (let n = start; n <= end; n++) numbers.push(n)
+  return { numbers, error: null }
+}
+
+type FieldKey =
+  | 'displayName'
+  | 'candidateDates'
+  | 'timeSlots'
+  | 'studentNumbers'
 
 export default function ProjectNewPage() {
   const navigate = useNavigate()
@@ -301,6 +334,9 @@ export default function ProjectNewPage() {
   const [candidateDates, setCandidateDates] = useState<string[]>([])
   const [startTime, setStartTime] = useState('16:00')
   const [endTime, setEndTime] = useState('17:00')
+  const [numberMode, setNumberMode] = useState<StudentNumberMode>('range')
+  const [rangeStart, setRangeStart] = useState('')
+  const [rangeEnd, setRangeEnd] = useState('')
   const [studentNumbersText, setStudentNumbersText] = useState('')
   const [fieldErrors, setFieldErrors] = useState<Partial<Record<FieldKey, string>>>(
     {},
@@ -318,6 +354,7 @@ export default function ProjectNewPage() {
   })
 
   const studentParse = parseStudentNumbers(studentNumbersText)
+  const rangeResult = expandStudentNumberRange(rangeStart, rangeEnd)
   const slicePreview = sliceTimeRange(startTime, endTime, slotMinutes)
 
   const handleSubmit = (e: FormEvent<HTMLFormElement>) => {
@@ -340,6 +377,16 @@ export default function ProjectNewPage() {
       errors.timeSlots = `時間枠が生成できません。終了時刻が開始時刻より後で、(終了 - 開始) が ${slotMinutes} 分以上必要です`
     }
 
+    const studentNumbers =
+      numberMode === 'range' ? rangeResult.numbers : studentParse.numbers
+    if (numberMode === 'range') {
+      if (rangeStart.trim() === '' || rangeEnd.trim() === '') {
+        errors.studentNumbers = '開始番号と終了番号を入力してください'
+      } else if (rangeResult.error) {
+        errors.studentNumbers = rangeResult.error
+      }
+    }
+
     setFieldErrors(errors)
 
     if (Object.keys(errors).length > 0) {
@@ -354,7 +401,7 @@ export default function ProjectNewPage() {
       slot_minutes: slotMinutes,
       candidate_dates: dates,
       candidate_time_slots: timeSlots,
-      student_numbers: studentParse.numbers,
+      student_numbers: studentNumbers,
     })
   }
 
@@ -512,39 +559,125 @@ export default function ProjectNewPage() {
         <Card>
           <CardHeader
             title="出席番号"
-            description="このプロジェクトの対象生徒の出席番号を入力します。カンマ区切り、または 1 行 1 番号で記入してください。"
+            description="このプロジェクトの対象生徒の出席番号を入力します。"
             actions={
-              studentParse.numbers.length > 0 ? (
+              (numberMode === 'range'
+                ? rangeResult.numbers.length
+                : studentParse.numbers.length) > 0 ? (
                 <span className="text-xs font-medium text-fg-muted">
-                  {studentParse.numbers.length} 名
+                  {numberMode === 'range'
+                    ? rangeResult.numbers.length
+                    : studentParse.numbers.length}{' '}
+                  名
                 </span>
               ) : undefined
             }
           />
-          <FormField
-            label="出席番号一覧"
-            htmlFor="student-numbers"
-          >
-            <Textarea
-              id="student-numbers"
-              value={studentNumbersText}
-              onChange={(e) => setStudentNumbersText(e.target.value)}
-              placeholder={'1, 2, 3, ...\nまたは1行1番号'}
-              rows={4}
-              className="max-w-md"
-            />
-          </FormField>
 
-          {/* ライブ解析結果 */}
-          {studentNumbersText.trim() !== '' && (
-            <div className="mt-3 flex flex-col gap-2">
-              {studentParse.numbers.length > 0 && (
-                <div className="rounded-md bg-surface-sunken border border-border px-3 py-2">
+          <div
+            role="group"
+            aria-label="出席番号の入力方法"
+            className="inline-flex rounded-md border border-border-strong overflow-hidden mb-4"
+          >
+            <button
+              type="button"
+              onClick={() => setNumberMode('range')}
+              aria-pressed={numberMode === 'range'}
+              className={cn(
+                'px-3 py-1.5 text-sm font-medium transition-colors',
+                numberMode === 'range'
+                  ? 'bg-brand-600 text-white'
+                  : 'bg-surface text-fg-muted hover:bg-surface-sunken',
+              )}
+            >
+              連番で指定
+            </button>
+            <button
+              type="button"
+              onClick={() => setNumberMode('list')}
+              aria-pressed={numberMode === 'list'}
+              className={cn(
+                'px-3 py-1.5 text-sm font-medium transition-colors border-l border-border-strong',
+                numberMode === 'list'
+                  ? 'bg-brand-600 text-white'
+                  : 'bg-surface text-fg-muted hover:bg-surface-sunken',
+              )}
+            >
+              個別に入力
+            </button>
+          </div>
+
+          {numberMode === 'range' ? (
+            <>
+              <div className="flex flex-wrap items-end gap-4">
+                <FormField
+                  label="開始番号"
+                  htmlFor="range-start"
+                  className="mb-0"
+                >
+                  <Input
+                    id="range-start"
+                    type="number"
+                    min={1}
+                    value={rangeStart}
+                    onChange={(e) => {
+                      setRangeStart(e.target.value)
+                      if (fieldErrors.studentNumbers) {
+                        setFieldErrors((p) => ({
+                          ...p,
+                          studentNumbers: undefined,
+                        }))
+                      }
+                    }}
+                    placeholder="1"
+                    className="w-28"
+                  />
+                </FormField>
+                <FormField label="終了番号" htmlFor="range-end" className="mb-0">
+                  <Input
+                    id="range-end"
+                    type="number"
+                    min={1}
+                    value={rangeEnd}
+                    onChange={(e) => {
+                      setRangeEnd(e.target.value)
+                      if (fieldErrors.studentNumbers) {
+                        setFieldErrors((p) => ({
+                          ...p,
+                          studentNumbers: undefined,
+                        }))
+                      }
+                    }}
+                    placeholder="35"
+                    className="w-28"
+                  />
+                </FormField>
+              </div>
+
+              {fieldErrors.studentNumbers && (
+                <p className="mt-3 text-xs text-danger-700 font-medium">
+                  {fieldErrors.studentNumbers}
+                </p>
+              )}
+              {!fieldErrors.studentNumbers &&
+                rangeResult.error &&
+                rangeStart.trim() !== '' &&
+                rangeEnd.trim() !== '' && (
+                  <Alert variant="warning" className="mt-3">
+                    {rangeResult.error}
+                  </Alert>
+                )}
+
+              {rangeResult.numbers.length > 0 && (
+                <div
+                  data-testid="range-numbers-preview"
+                  className="mt-3 rounded-md bg-surface-sunken border border-border px-3 py-2"
+                >
                   <div className="text-xs text-fg-subtle mb-1.5">
-                    認識した出席番号
+                    生成される出席番号（{rangeResult.numbers.length} 名）
                   </div>
                   <div className="flex flex-wrap gap-1 max-h-24 overflow-y-auto">
-                    {studentParse.numbers.map((n) => (
+                    {rangeResult.numbers.map((n) => (
                       <span
                         key={n}
                         className="inline-flex items-center rounded-full bg-brand-50 border border-brand-200 px-2 py-0.5 text-xs font-medium text-brand-700"
@@ -555,19 +688,59 @@ export default function ProjectNewPage() {
                   </div>
                 </div>
               )}
-              {studentParse.duplicates.length > 0 && (
-                <Alert variant="warning">
-                  重複する番号があります（自動で 1 件にまとめます）:{' '}
-                  <strong>{studentParse.duplicates.join(', ')}</strong>
-                </Alert>
+            </>
+          ) : (
+            <>
+              <FormField
+                label="出席番号一覧"
+                htmlFor="student-numbers"
+                hint="カンマ区切り、または1行1番号で記入してください。"
+              >
+                <Textarea
+                  id="student-numbers"
+                  value={studentNumbersText}
+                  onChange={(e) => setStudentNumbersText(e.target.value)}
+                  placeholder={'1, 2, 3, ...\nまたは1行1番号'}
+                  rows={4}
+                  className="max-w-md"
+                />
+              </FormField>
+
+              {/* ライブ解析結果 */}
+              {studentNumbersText.trim() !== '' && (
+                <div className="mt-3 flex flex-col gap-2">
+                  {studentParse.numbers.length > 0 && (
+                    <div className="rounded-md bg-surface-sunken border border-border px-3 py-2">
+                      <div className="text-xs text-fg-subtle mb-1.5">
+                        認識した出席番号
+                      </div>
+                      <div className="flex flex-wrap gap-1 max-h-24 overflow-y-auto">
+                        {studentParse.numbers.map((n) => (
+                          <span
+                            key={n}
+                            className="inline-flex items-center rounded-full bg-brand-50 border border-brand-200 px-2 py-0.5 text-xs font-medium text-brand-700"
+                          >
+                            {n}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  {studentParse.duplicates.length > 0 && (
+                    <Alert variant="warning">
+                      重複する番号があります（自動で 1 件にまとめます）:{' '}
+                      <strong>{studentParse.duplicates.join(', ')}</strong>
+                    </Alert>
+                  )}
+                  {studentParse.invalid.length > 0 && (
+                    <Alert variant="warning">
+                      正の整数として解釈できなかったため除外します:{' '}
+                      <strong>{studentParse.invalid.join(', ')}</strong>
+                    </Alert>
+                  )}
+                </div>
               )}
-              {studentParse.invalid.length > 0 && (
-                <Alert variant="warning">
-                  正の整数として解釈できなかったため除外します:{' '}
-                  <strong>{studentParse.invalid.join(', ')}</strong>
-                </Alert>
-              )}
-            </div>
+            </>
           )}
         </Card>
 

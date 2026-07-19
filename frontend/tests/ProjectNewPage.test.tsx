@@ -3,7 +3,7 @@
  * Phase 4.2 - TDD RED フェーズ
  */
 
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { MemoryRouter, Routes, Route } from 'react-router-dom'
@@ -110,6 +110,10 @@ describe('ProjectNewPage', () => {
     expect(anyDayButton).toBeDefined()
     await user.click(anyDayButton!)
 
+    // 出席番号（開始・終了番号で連番指定）
+    await user.type(screen.getByLabelText('開始番号'), '1')
+    await user.type(screen.getByLabelText('終了番号'), '3')
+
     // 作成ボタンをクリック
     const submitButton = screen.getByRole('button', { name: '作成' })
     await user.click(submitButton)
@@ -153,6 +157,61 @@ describe('ProjectNewPage', () => {
       expect(screen.getByRole('alert')).toHaveTextContent(
         /カレンダーから.*選択/,
       )
+    })
+  })
+
+  it('開始番号と終了番号を入力すると連番の出席番号が生成される', async () => {
+    const user = userEvent.setup()
+    renderWithProviders(<ProjectNewPage />)
+
+    await user.type(screen.getByLabelText('開始番号'), '3')
+    await user.type(screen.getByLabelText('終了番号'), '6')
+
+    const preview = await screen.findByTestId('range-numbers-preview')
+    expect(preview).toHaveTextContent('生成される出席番号（4 名）')
+    for (const n of ['3', '4', '5', '6']) {
+      expect(within(preview).getByText(n)).toBeInTheDocument()
+    }
+  })
+
+  it('終了番号が開始番号より小さいと警告を表示する', async () => {
+    const user = userEvent.setup()
+    renderWithProviders(<ProjectNewPage />)
+
+    await user.type(screen.getByLabelText('開始番号'), '5')
+    await user.type(screen.getByLabelText('終了番号'), '2')
+
+    await waitFor(() => {
+      expect(
+        screen.getByText(/終了番号は開始番号以上の値にしてください/),
+      ).toBeInTheDocument()
+    })
+  })
+
+  it('連番指定で開始・終了番号が未入力のままサブミットするとエラーを表示する', async () => {
+    const user = userEvent.setup()
+    renderWithProviders(<ProjectNewPage />)
+
+    await user.type(screen.getByLabelText(/プロジェクト名/), 'テスト')
+    await user.click(screen.getByRole('button', { name: '作成' }))
+
+    await waitFor(() => {
+      expect(screen.getByRole('alert')).toHaveTextContent(
+        /開始番号と終了番号を入力してください/,
+      )
+    })
+  })
+
+  it('「個別に入力」に切り替えるとカンマ区切りテキストで出席番号を指定できる', async () => {
+    const user = userEvent.setup()
+    renderWithProviders(<ProjectNewPage />)
+
+    await user.click(screen.getByRole('button', { name: '個別に入力' }))
+    const textarea = screen.getByLabelText('出席番号一覧')
+    await user.type(textarea, '1, 2, 3')
+
+    await waitFor(() => {
+      expect(screen.getByText('認識した出席番号')).toBeInTheDocument()
     })
   })
 
