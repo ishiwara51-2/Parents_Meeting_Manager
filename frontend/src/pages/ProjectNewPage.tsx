@@ -25,6 +25,7 @@ import {
   Textarea,
 } from '../components/ui'
 import { cn } from '../components/ui/cn'
+import { formatDateWithWeekday } from '../lib/dateFormat'
 
 /** "YYYY-MM-DD" 形式に整形 */
 function formatYMD(year: number, month0: number, day: number): string {
@@ -201,7 +202,7 @@ function CandidateDatesCalendar({
                 key={d}
                 className="inline-flex items-center gap-1 rounded-full bg-brand-50 border border-brand-200 px-2.5 py-0.5 text-xs font-medium text-brand-700"
               >
-                {d}
+                {formatDateWithWeekday(d)}
                 <button
                   type="button"
                   onClick={() => toggleDate(d)}
@@ -336,7 +337,7 @@ export default function ProjectNewPage() {
   const [startTime, setStartTime] = useState('16:00')
   const [endTime, setEndTime] = useState('17:00')
   const [numberMode, setNumberMode] = useState<StudentNumberMode>('range')
-  const [rangeStart, setRangeStart] = useState('')
+  const [rangeStart, setRangeStart] = useState('1')
   const [rangeEnd, setRangeEnd] = useState('')
   const [studentNumbersText, setStudentNumbersText] = useState('')
   const [localRules, setLocalRules] = useState<Rules | null>(null)

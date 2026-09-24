@@ -57,7 +57,7 @@ class FormInfo(BaseModel):
     )
     student_number_question_id: str = Field(
         ...,
-        description="出席番号 TextQuestion の questionId（パース時に使用）",
+        description="出席番号 ChoiceQuestion（プルダウン）の questionId（パース時に使用）",
     )
     comment_question_id: str | None = Field(
         default=None,

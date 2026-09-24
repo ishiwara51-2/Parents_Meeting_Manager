@@ -19,6 +19,7 @@ import {
 } from '@dnd-kit/core'
 import type { DragEndEvent } from '@dnd-kit/core'
 import { scheduleApi, projectsApi, responsesApi, draftsApi } from '../api'
+import { formatDateWithWeekday } from '../lib/dateFormat'
 import type {
   SchedulingResult,
   Assignment,
@@ -274,7 +275,7 @@ export function WarningDialog({ studentNumber, date, start, onClose }: WarningDi
         <p className="text-sm text-fg mb-1">
           出席番号 <strong className="font-semibold">{studentNumber}</strong> の生徒は、
           <strong className="font-semibold">
-            {date} {start}
+            {formatDateWithWeekday(date)} {start}
           </strong>{' '}
           を候補日時として回答していません。
         </p>
@@ -714,7 +715,7 @@ function AvailabilityMatrix({ responses, project }: AvailabilityMatrixProps) {
             <th style={thStyle}>時間枠</th>
             {dates.map((date) => (
               <th key={date} style={thStyle}>
-                {date}
+                {formatDateWithWeekday(date)}
               </th>
             ))}
           </tr>
@@ -853,7 +854,7 @@ function ScheduleMatrix({
                 colStudents.every((sn) => lockedStudents.has(sn))
               return (
                 <th key={date} style={thStyle}>
-                  {date}
+                  {formatDateWithWeekday(date)}
                   {colStudents.length > 0 && (
                     <button
                       type="button"
@@ -861,8 +862,8 @@ function ScheduleMatrix({
                       data-testid={`column-lock-button-${date}`}
                       aria-label={
                         colAllLocked
-                          ? `${date} の一括ロックを解除する`
-                          : `${date} を一括ロックする`
+                          ? `${formatDateWithWeekday(date)} の一括ロックを解除する`
+                          : `${formatDateWithWeekday(date)} を一括ロックする`
                       }
                       aria-pressed={colAllLocked}
                       title="この日付の配置を一括ロック/解除します"

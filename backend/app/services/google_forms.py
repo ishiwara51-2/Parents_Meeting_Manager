@@ -9,9 +9,9 @@ API 呼び出しシーケンス（公式の標準パターン）::
     1. forms.create(body={"info": {"title": ...}})
        → タイトルだけ確定。タイトル以外のフィールドはコピーされない仕様
     2. forms.batchUpdate(formId, body={"requests": [createItem×3, updateFormInfo]})
-       → 出席番号 TextQuestion、候補日×時間枠 matrix、自由記述コメント
-         TextQuestion を追加し、続けて Form 説明文（複数回送信時は最新回答が
-         採用される旨の注記）を updateFormInfo で設定
+       → 出席番号 ChoiceQuestion（プルダウン）、候補日×時間枠 matrix、
+         自由記述コメント TextQuestion を追加し、続けて Form 説明文
+         （複数回送信時は最新回答が採用される旨の注記）を updateFormInfo で設定
     3. （フォールバック）forms.get(formId)
        → batchUpdate の応答に matrix の行 questionId が含まれない場合のみ
          実機 API での挙動が公式リファレンスに明記されていないリスクへの保険
@@ -29,6 +29,7 @@ API 呼び出しシーケンス（公式の標準パターン）::
 from __future__ import annotations
 
 import logging
+from datetime import date as date_cls
 from typing import Any
 
 from googleapiclient.discovery import build
@@ -67,17 +68,18 @@ COMMENT_MAX_LENGTH = 100
 # 取り扱いをあらかじめ周知するのに加え、本 Form が「都合の悪い日時」を
 # 聞くものであることをタイトル直下でも強調する（一番目に入りやすい位置のため）。
 #
-# 3つの注意事項を含むため、①②③の番号を付けて視覚的に区切る。
+# 2つの注意事項を含むため、①②の番号を付けて視覚的に区切る。
+# 「都合の悪い日時にチェックする」＝「チェックしなかった日時は参加可能」は
+# 表裏一体の説明のため①として1つにまとめている。
 # Forms API の description は改行文字（"\n" 等）を含めると
 # 「Displayed text cannot contain newlines」で 400 エラーになるため、
 # 改行の代わりに番号と全角スペースで区切りを表現する（実機で確認済み）。
 FORM_DESCRIPTION = (
     "【ご注意】"
     "①このFormでは「都合の悪い（参加できない）日時」にチェックを入れてください。"
+    "チェックしなかった日時は「参加可能」として扱われます。"
     "　"
-    "②チェックしなかった日時は「参加可能」として扱われます。"
-    "　"
-    "③同じ出席番号で2回以上回答を送信した場合、日程調整には最後に送信した"
+    "②同じ出席番号で2回以上回答を送信した場合、日程調整には最後に送信した"
     "内容のみが使用されます（古い回答は無視されます。内容を修正したい場合は、"
     "このFormから再度送信してください）。"
 )
@@ -111,24 +113,43 @@ def _format_time_slot_label(slot: TimeSlot) -> str:
     return f"{start}-{end}"
 
 
-def _build_student_number_item() -> dict[str, Any]:
+_WEEKDAY_JA = "月火水木金土日"
+
+
+def _format_date_label(date_str: str) -> str:
+    """候補日 ISO 文字列に曜日を付加した表示用ラベルを返す（例: ``"2026-07-15（水）"``）。
+
+    日付だけでは曜日が分かりづらいという保護者からのフィードバックを受け、
+    matrix の行タイトルに曜日を併記する。``row_question_id_by_date`` の
+    キー自体は ISO 文字列のまま変更しない（``_extract_row_qids_from_form`` が
+    このラベルから逆引きして ISO 文字列に戻す）。
+    """
+    weekday = _WEEKDAY_JA[date_cls.fromisoformat(date_str).weekday()]
+    return f"{date_str}（{weekday}）"
+
+
+def _build_student_number_item(*, student_numbers: list[int]) -> dict[str, Any]:
     """出席番号質問の ``createItem`` リクエストを組み立てる。
 
-    `forms_api_research.md` §5 採用方針：
-        - ``TextQuestion(paragraph=False)``
-        - ``required=True``
-        - 整数バリデーションは API では未対応のため、Phase 2.3 のサーバ側で実装
+    自由記述（``TextQuestion``）だと全角数字・存在しない番号などの誤入力が
+    起こり得たため、プロジェクトに登録済みの出席番号一覧から選ぶプルダウン
+    （``ChoiceQuestion`` type=``DROP_DOWN``）に変更した。
     """
     return {
         "createItem": {
             "location": {"index": 0},
             "item": {
-                "title": "出席番号（半角数字）",
-                "description": "あなたの出席番号を入力してください",
+                "title": "出席番号",
+                "description": "あなたの出席番号をプルダウンから選択してください",
                 "questionItem": {
                     "question": {
                         "required": True,
-                        "textQuestion": {"paragraph": False},
+                        "choiceQuestion": {
+                            "type": "DROP_DOWN",
+                            "options": [
+                                {"value": str(n)} for n in student_numbers
+                            ],
+                        },
                     }
                 },
             },
@@ -190,7 +211,7 @@ def _build_matrix_item(
                     "questions": [
                         {
                             "required": False,
-                            "rowQuestion": {"title": date_str},
+                            "rowQuestion": {"title": _format_date_label(date_str)},
                         }
                         for date_str in candidate_dates
                     ],
@@ -243,19 +264,27 @@ def _build_update_form_info_request() -> dict[str, Any]:
 
 
 def _build_batch_update_body(
-    *, candidate_dates: list[str], time_slot_labels: list[str]
+    *,
+    student_numbers: list[int],
+    candidate_dates: list[str],
+    time_slot_labels: list[str],
 ) -> dict[str, Any]:
     """``forms.batchUpdate`` リクエスト本体を組み立てる。
 
-    インデックス 0 = 出席番号 TextQuestion、インデックス 1 = matrix、
+    インデックス 0 = 出席番号 ChoiceQuestion（プルダウン）、インデックス 1 = matrix、
     インデックス 2 = 自由記述コメント TextQuestion、インデックス 3 = Form 説明文更新。
     順序は ``form.json`` 保存時の ``row_question_id_by_date`` 復元にも依存する
     （matrix は常にインデックス 1 に固定する）。説明文更新は既存の抽出処理が
     参照しない末尾に追加しているため、他のインデックスに影響しない。
+
+    出席番号選択の確認表示（プルダウンで選んだ値をチェックボックス質問の文言に
+    差し込む等）は Google Forms API では実現できない（値の差し込み＝
+    回答内容に応じた動的な文言生成はサポート外）ため、意味を持たない
+    「確認しました」チェックボックスは追加せず廃止した。
     """
     return {
         "requests": [
-            _build_student_number_item(),
+            _build_student_number_item(student_numbers=student_numbers),
             _build_matrix_item(
                 candidate_dates=candidate_dates,
                 time_slot_labels=time_slot_labels,
@@ -351,28 +380,33 @@ def _extract_row_qids_from_form(
             { questionGroupItem: {
                 grid: {...},
                 questions: [
-                    { questionId: ..., rowQuestion: { title: "YYYY-MM-DD" } },
+                    { questionId: ..., rowQuestion: { title: "YYYY-MM-DD（月）" } },
                     ...
                 ]
             }}
         ]
+
+    行タイトルは ``_format_date_label`` で曜日が付与されているため、
+    候補日ごとに期待されるラベル文字列を逆引きキーとして突き合わせ、
+    戻り値のキーは ISO 文字列（``candidate_dates`` そのもの）に揃える。
     """
+    title_to_date = {_format_date_label(d): d for d in candidate_dates}
     items = form_get_response.get("items") or []
     for item in items:
         qgi = item.get("questionGroupItem")
         if not qgi:
             continue
         questions = qgi.get("questions") or []
-        by_title: dict[str, str] = {}
+        by_date: dict[str, str] = {}
         for q in questions:
             row = q.get("rowQuestion") or {}
             title = row.get("title")
             qid = q.get("questionId")
-            if title and qid:
-                by_title[title] = qid
-        if by_title:
+            if title in title_to_date and qid:
+                by_date[title_to_date[title]] = qid
+        if by_date:
             # 候補日順に揃え直して返す（候補日に該当しないキーは除外）
-            return {d: by_title[d] for d in candidate_dates if d in by_title}
+            return {d: by_date[d] for d in candidate_dates if d in by_date}
 
     raise RuntimeError(
         "forms.get 応答から matrix 行 questionId が抽出できません。"
@@ -449,6 +483,7 @@ def create_form(project: Project) -> FormInfo:
     batch_response: dict[str, Any] = forms_api.batchUpdate(
         formId=form_id,
         body=_build_batch_update_body(
+            student_numbers=project.student_numbers,
             candidate_dates=candidate_dates,
             time_slot_labels=time_slot_labels,
         ),

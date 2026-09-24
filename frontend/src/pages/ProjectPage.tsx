@@ -26,6 +26,7 @@ import {
   Stepper,
 } from '../components/ui'
 import type { Step, StepState } from '../components/ui'
+import { formatDateWithWeekday } from '../lib/dateFormat'
 
 // --- 生徒コメント一覧（読み取り専用、Form 回答の自由記述欄）---
 
@@ -351,7 +352,9 @@ export default function ProjectPage() {
               <dt className="text-xs font-medium text-fg-subtle uppercase tracking-wider mb-1">
                 候補日
               </dt>
-              <dd className="text-fg">{project.candidate_dates.join(', ')}</dd>
+              <dd className="text-fg">
+                {project.candidate_dates.map(formatDateWithWeekday).join(', ')}
+              </dd>
             </div>
             <div>
               <dt className="text-xs font-medium text-fg-subtle uppercase tracking-wider mb-1">

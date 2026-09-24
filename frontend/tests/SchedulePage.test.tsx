@@ -156,8 +156,9 @@ describe('SchedulePage', () => {
     renderSchedulePage()
     await waitFor(() => {
       // 日程案マトリクスと候補日時集計マトリクスの両方に出現するため getAllByText で確認
-      expect(screen.getAllByText('2026-07-15').length).toBeGreaterThan(0)
-      expect(screen.getAllByText('2026-07-16').length).toBeGreaterThan(0)
+      // （曜日が付与されるため部分一致で確認する）
+      expect(screen.getAllByText(/2026-07-15/).length).toBeGreaterThan(0)
+      expect(screen.getAllByText(/2026-07-16/).length).toBeGreaterThan(0)
     })
   })
 

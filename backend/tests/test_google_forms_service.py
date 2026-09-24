@@ -102,12 +102,19 @@ class FakeFormsApi:
             "items": [
                 {
                     "itemId": "ITEM_SN",
-                    "title": "出席番号（半角数字）",
+                    "title": "出席番号",
                     "questionItem": {
                         "question": {
                             "questionId": "QID_SN",
                             "required": True,
-                            "textQuestion": {"paragraph": False},
+                            "choiceQuestion": {
+                                "type": "DROP_DOWN",
+                                "options": [
+                                    {"value": "1"},
+                                    {"value": "2"},
+                                    {"value": "3"},
+                                ],
+                            },
                         }
                     },
                 },
@@ -130,12 +137,12 @@ class FakeFormsApi:
                             {
                                 "questionId": "QID_ROW_0",
                                 "required": False,
-                                "rowQuestion": {"title": "2026-07-15"},
+                                "rowQuestion": {"title": "2026-07-15（水）"},
                             },
                             {
                                 "questionId": "QID_ROW_1",
                                 "required": False,
-                                "rowQuestion": {"title": "2026-07-16"},
+                                "rowQuestion": {"title": "2026-07-16（木）"},
                             },
                         ],
                     },
@@ -206,7 +213,7 @@ def test_create_form_sends_correct_batch_update_requests(
 
     - ``forms.create`` を ``info.title`` 付きで呼ぶ
     - ``forms.batchUpdate`` で 4 件のリクエストを送る
-        1. 出席番号 ``TextQuestion(paragraph=False)`` + ``required=True``
+        1. 出席番号 ``ChoiceQuestion(type=DROP_DOWN)`` + ``required=True``
         2. matrix ``QuestionGroupItem`` + ``Grid(columns.type=CHECKBOX)``
         3. 自由記述コメント ``TextQuestion(paragraph=False)`` + ``required=False``
         4. ``updateFormInfo`` で Form 説明文（複数回送信時は最新回答が
@@ -242,14 +249,19 @@ def test_create_form_sends_correct_batch_update_requests(
     body = fake_api.batch_update_called_with["body"]
     requests = body["requests"]
     assert len(requests) == 4, (
-        f"リクエストは4件（TextQuestion + matrix + コメント + updateFormInfo）であるべき: {requests}"
+        f"リクエストは4件（出席番号 + matrix + コメント + updateFormInfo）であるべき: {requests}"
     )
 
-    # 1 件目: 出席番号 TextQuestion
+    # 1 件目: 出席番号 ChoiceQuestion（プロジェクトの student_numbers からプルダウン生成）
     sn_req = requests[0]["createItem"]
     sn_question = sn_req["item"]["questionItem"]["question"]
     assert sn_question["required"] is True
-    assert sn_question["textQuestion"]["paragraph"] is False
+    assert sn_question["choiceQuestion"]["type"] == "DROP_DOWN"
+    assert sn_question["choiceQuestion"]["options"] == [
+        {"value": "1"},
+        {"value": "2"},
+        {"value": "3"},
+    ]
 
     # 2 件目: matrix（QuestionGroupItem + Grid + CHECKBOX）
     matrix_req = requests[1]["createItem"]
@@ -308,12 +320,12 @@ def test_matrix_rows_and_columns_match_project_definition(
         SELECT_ALL_TIMES_COLUMN_LABEL,
     ]
 
-    # rows: 候補日が ISO 文字列で順序通り。
+    # rows: 候補日が ISO 文字列 + 曜日付きラベルで順序通り。
     # 各 row は required=False（0 枠チェックの日を許容するため。
     # チェックが無い日は「終日都合が悪い時間帯が無い」＝終日参加可能として扱われる）
     questions = qgi["questions"]
     row_titles = [q["rowQuestion"]["title"] for q in questions]
-    assert row_titles == ["2026-07-15", "2026-07-16"]
+    assert row_titles == ["2026-07-15（水）", "2026-07-16（木）"]
     for q in questions:
         assert q["required"] is False, "0 枠チェックの日を許容するため各行は required=False"
 

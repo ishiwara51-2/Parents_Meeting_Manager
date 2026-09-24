@@ -125,8 +125,7 @@ describe('ProjectNewPage', () => {
     expect(anyDayButton).toBeDefined()
     await user.click(anyDayButton!)
 
-    // 出席番号（開始・終了番号で連番指定）
-    await user.type(screen.getByLabelText('開始番号'), '1')
+    // 出席番号（開始・終了番号で連番指定、開始番号は既定値の "1" のまま）
     await user.type(screen.getByLabelText('終了番号'), '3')
 
     // グローバルルールの読み込み完了を待つ
@@ -173,7 +172,7 @@ describe('ProjectNewPage', () => {
       .find((el) => !el.hasAttribute('disabled'))
     await user.click(anyDayButton!)
 
-    await user.type(screen.getByLabelText('開始番号'), '1')
+    // 開始番号は既定値の "1" のまま、終了番号のみ入力する
     await user.type(screen.getByLabelText('終了番号'), '3')
 
     const maxConsecutiveInput = await screen.findByLabelText('最大連続コマ数')
@@ -231,10 +230,16 @@ describe('ProjectNewPage', () => {
     })
   })
 
+  it('開始番号のデフォルト値は1になっている', () => {
+    renderWithProviders(<ProjectNewPage />)
+    expect(screen.getByLabelText('開始番号')).toHaveValue(1)
+  })
+
   it('開始番号と終了番号を入力すると連番の出席番号が生成される', async () => {
     const user = userEvent.setup()
     renderWithProviders(<ProjectNewPage />)
 
+    await user.clear(screen.getByLabelText('開始番号'))
     await user.type(screen.getByLabelText('開始番号'), '3')
     await user.type(screen.getByLabelText('終了番号'), '6')
 
@@ -249,6 +254,7 @@ describe('ProjectNewPage', () => {
     const user = userEvent.setup()
     renderWithProviders(<ProjectNewPage />)
 
+    await user.clear(screen.getByLabelText('開始番号'))
     await user.type(screen.getByLabelText('開始番号'), '5')
     await user.type(screen.getByLabelText('終了番号'), '2')
 
