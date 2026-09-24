@@ -99,7 +99,7 @@ def test_authorization_url_contains_required_scopes_and_state(
     """build_authorization_url() は requirements.md §2.1 の必須スコープと state を含む。"""
     from app.services import google_auth
 
-    url, state = google_auth.build_authorization_url()
+    url, state, _code_verifier = google_auth.build_authorization_url()
 
     # 必須スコープ（URL エンコードされていても部分文字列で検出可能）
     assert "forms.body" in url
@@ -227,6 +227,10 @@ def test_callback_returns_400_on_state_mismatch(fake_oauth_client: Path) -> None
         "https://accounts.google.com/o/oauth2/v2/auth?fake=1",
         "ignored",
     )
+    # MagicMock の属性はデフォルトで MagicMock を返し JSON シリアライズできない
+    # ため、build_authorization_url() がセッションに保存する code_verifier に
+    # JSON 化可能な値を明示しておく。
+    fake_flow.code_verifier = "fake-code-verifier"
 
     with TestClient(app, follow_redirects=False) as client:
         with patch("app.services.google_auth._build_flow", return_value=fake_flow):

@@ -45,14 +45,29 @@ def _resolve_session_secret() -> str:
 
     優先順位:
         1. 環境変数 ``MEETING_SCHEDULER_SESSION_SECRET``
-        2. プロセス起動時に ``secrets.token_urlsafe(32)`` で都度生成
+        2. ``config_dir/session_secret.txt`` に永続化された値
+           （無ければ ``secrets.token_urlsafe(32)`` で生成しファイルに保存）
 
-    プロセス再起動でセッションは無効化される（プロトタイプ運用として許容）。
+    ファイルに永続化することで、``uvicorn --reload`` によるプロセス再起動
+    （OAuth 認可フロー中にバックエンドのコードを保存すると発生しうる）を
+    またいでもセッション署名鍵が変わらず、Google 認証コールバックが
+    「state not found in session」で失敗しないようにする。
     """
     explicit = os.getenv(ENV_SESSION_SECRET)
     if explicit:
         return explicit
-    return secrets.token_urlsafe(32)
+
+    settings = get_settings()
+    settings.config_dir.mkdir(parents=True, exist_ok=True)
+    secret_path = settings.config_dir / "session_secret.txt"
+    if secret_path.exists():
+        saved = secret_path.read_text(encoding="utf-8").strip()
+        if saved:
+            return saved
+
+    generated = secrets.token_urlsafe(32)
+    secret_path.write_text(generated, encoding="utf-8")
+    return generated
 
 
 @asynccontextmanager
@@ -79,7 +94,8 @@ def create_app() -> FastAPI:
     )
 
     # CSRF 対策の state を保存するためのセッションミドルウェア
-    # （requirements.md §2.1, Phase 1.3）
+    # （requirements.md §2.1, Phase 1.3）。署名鍵は config_dir に永続化される
+    # （_resolve_session_secret 参照）ため、--reload 再起動をまたいでも有効。
     application.add_middleware(
         SessionMiddleware,
         secret_key=_resolve_session_secret(),
