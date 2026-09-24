@@ -4,7 +4,7 @@ requirements.md §2.1 / §6 に対応する以下3エンドポイントを提供
 
 - ``GET /api/auth/google`` 認証開始（``state`` 生成 → セッション保存 → リダイレクト）
 - ``GET /api/auth/google/callback`` コールバック処理（``state`` 検証 → トークン取得）
-- ``GET /api/auth/status`` 認証状態確認
+- ``GET /api/auth/status`` 認証状態確認（``{"authenticated": bool, "email": str | None}``）
 
 **CSRF 対策（requirements.md §2.1）**：state パラメータをサーバ側セッション
 （``starlette.middleware.sessions.SessionMiddleware``）に保存し、コールバック
@@ -135,11 +135,11 @@ def google_auth_callback(
 
 
 @router.get("/status")
-def auth_status() -> dict[str, str]:
-    """現在の認証状態を返す（``authorized`` または ``unauthorized``）。"""
-    if google_auth.is_authenticated():
-        return {"status": "authorized"}
-    return {"status": "unauthorized"}
+def auth_status() -> dict[str, bool | str | None]:
+    """現在の認証状態と、判明していれば email を返す。"""
+    authenticated = google_auth.is_authenticated()
+    email = google_auth.get_authenticated_email() if authenticated else None
+    return {"authenticated": authenticated, "email": email}
 
 
 __all__ = ["router"]

@@ -22,6 +22,10 @@ const DEFAULT_RULES = {
 }
 
 vi.mock('../src/api', () => ({
+  authApi: {
+    status: vi.fn(),
+    startGoogle: vi.fn(),
+  },
   rulesApi: {
     getGlobal: vi.fn(),
     putGlobal: vi.fn(),
@@ -42,6 +46,7 @@ function renderWithProviders(ui: ReactElement) {
 describe('GlobalRulesPage', () => {
   beforeEach(() => {
     vi.resetAllMocks()
+    vi.mocked(api.authApi.status).mockResolvedValue({ authenticated: false })
     vi.mocked(api.rulesApi.getGlobal).mockResolvedValue(DEFAULT_RULES)
     vi.mocked(api.rulesApi.putGlobal).mockResolvedValue(DEFAULT_RULES)
   })

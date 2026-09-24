@@ -1,6 +1,9 @@
 import type { ReactNode } from 'react'
 import { Link } from 'react-router-dom'
+import { useQuery } from '@tanstack/react-query'
+import { authApi } from '../../api'
 import { cn } from './cn'
+import { Button } from './Button'
 
 export interface Breadcrumb {
   label: ReactNode
@@ -9,7 +12,10 @@ export interface Breadcrumb {
 }
 
 interface AppShellProps {
-  /** ヘッダー右端に表示する内容（認証バッジ等） */
+  /**
+   * ヘッダー右端に追加で表示する内容。認証状態バッジは常に AppShell 側で
+   * 自動表示されるため（全画面共通）、ここには渡さなくてよい。
+   */
   headerRight?: ReactNode
   /**
    * パンくず。先頭の "ホーム" は自動付与されるため省略可。
@@ -123,6 +129,31 @@ function Breadcrumbs({ items }: { items: Breadcrumb[] }) {
   )
 }
 
+/** ヘッダー右端の認証状態バッジ。全画面共通で表示する（requirements.md §4.2）。 */
+function AuthBadge() {
+  const { data: authStatus, isLoading } = useQuery({
+    queryKey: ['auth-status'],
+    queryFn: authApi.status,
+  })
+
+  if (isLoading) {
+    return <span className="text-fg-subtle">認証状態確認中...</span>
+  }
+  if (authStatus?.authenticated) {
+    return (
+      <span className="text-fg-muted">
+        <span className="text-fg-subtle">ログイン済み: </span>
+        <span className="font-medium text-fg">{authStatus.email}</span>
+      </span>
+    )
+  }
+  return (
+    <Button variant="secondary" size="sm" onClick={() => authApi.startGoogle()}>
+      Googleでログイン
+    </Button>
+  )
+}
+
 export function AppShell({
   headerRight,
   breadcrumbs,
@@ -150,11 +181,10 @@ export function AppShell({
             </span>
             <span>保護者面談調整ツール</span>
           </Link>
-          {headerRight && (
-            <div className="flex items-center gap-3 text-sm">
-              {headerRight}
-            </div>
-          )}
+          <div className="flex items-center gap-3 text-sm">
+            {headerRight}
+            <AuthBadge />
+          </div>
         </div>
       </header>
 

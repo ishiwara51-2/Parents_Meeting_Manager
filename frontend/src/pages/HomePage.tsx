@@ -11,7 +11,7 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { authApi, projectsApi } from '../api'
+import { projectsApi } from '../api'
 import type { Project, ProjectStatus } from '../api'
 import {
   AppShell,
@@ -39,11 +39,6 @@ export default function HomePage() {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
 
-  const { data: authStatus, isLoading: authLoading } = useQuery({
-    queryKey: ['auth-status'],
-    queryFn: authApi.status,
-  })
-
   const { data: projects = [], isLoading: projectsLoading } = useQuery({
     queryKey: ['projects'],
     queryFn: projectsApi.list,
@@ -64,26 +59,8 @@ export default function HomePage() {
     },
   })
 
-  const headerRight = authLoading ? (
-    <span className="text-fg-subtle">認証状態確認中...</span>
-  ) : authStatus?.authenticated ? (
-    <span className="text-fg-muted">
-      <span className="text-fg-subtle">ログイン済み: </span>
-      <span className="font-medium text-fg">{authStatus.email}</span>
-    </span>
-  ) : (
-    <Button
-      variant="secondary"
-      size="sm"
-      onClick={() => authApi.startGoogle()}
-    >
-      Googleでログイン
-    </Button>
-  )
-
   return (
     <AppShell
-      headerRight={headerRight}
       title="保護者面談調整ツール"
       subtitle="保護者面談の日程を、Google Form を使って効率的に調整します。"
       actions={

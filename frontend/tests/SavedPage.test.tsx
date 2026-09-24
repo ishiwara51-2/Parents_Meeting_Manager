@@ -18,6 +18,10 @@ import SavedPage from '../src/pages/SavedPage'
 import * as api from '../src/api'
 
 vi.mock('../src/api', () => ({
+  authApi: {
+    status: vi.fn(),
+    startGoogle: vi.fn(),
+  },
   draftsApi: {
     unlock: vi.fn(),
     save: vi.fn(),
@@ -61,6 +65,7 @@ function renderSavedPage(projectId = PROJECT_ID) {
 describe('SavedPage', () => {
   beforeEach(() => {
     vi.resetAllMocks()
+    vi.mocked(api.authApi.status).mockResolvedValue({ authenticated: false })
   })
 
   it('「PDF出力」ボタンが表示される', () => {

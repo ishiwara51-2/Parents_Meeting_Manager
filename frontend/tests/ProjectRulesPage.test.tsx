@@ -16,6 +16,10 @@ import ProjectRulesPage from '../src/pages/ProjectRulesPage'
 import * as api from '../src/api'
 
 vi.mock('../src/api', () => ({
+  authApi: {
+    status: vi.fn(),
+    startGoogle: vi.fn(),
+  },
   rulesApi: {
     getProject: vi.fn(),
     putProject: vi.fn(),
@@ -60,6 +64,7 @@ function renderProjectRulesPage(projectId = PROJECT_ID) {
 describe('ProjectRulesPage', () => {
   beforeEach(() => {
     vi.resetAllMocks()
+    vi.mocked(api.authApi.status).mockResolvedValue({ authenticated: false })
     vi.mocked(api.rulesApi.getProject).mockResolvedValue(DEFAULT_RULES)
     vi.mocked(api.rulesApi.putProject).mockResolvedValue(DEFAULT_RULES)
   })

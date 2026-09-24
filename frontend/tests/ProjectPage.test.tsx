@@ -19,6 +19,10 @@ import ProjectPage from '../src/pages/ProjectPage'
 import * as api from '../src/api'
 
 vi.mock('../src/api', () => ({
+  authApi: {
+    status: vi.fn(),
+    startGoogle: vi.fn(),
+  },
   projectsApi: {
     get: vi.fn(),
   },
@@ -112,6 +116,7 @@ function renderProjectPage(projectId = PROJECT_ID) {
 describe('ProjectPage', () => {
   beforeEach(() => {
     vi.resetAllMocks()
+    vi.mocked(api.authApi.status).mockResolvedValue({ authenticated: false })
     vi.mocked(api.projectsApi.get).mockResolvedValue(MOCK_PROJECT)
     // Form未作成の場合は 404 相当のエラーを返す
     vi.mocked(api.formApi.get).mockRejectedValue(

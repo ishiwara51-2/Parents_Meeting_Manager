@@ -1,9 +1,24 @@
-# ログイン状態ヘッダー表示 引き継ぎメモ（保留中）
+# ログイン状態ヘッダー表示 引き継ぎメモ（完了）
 
 ## ステータス
 
-**保留**。調査・方針決定までは完了したが実装は未着手。ユーザー指示により中断し、
-別タスク（GoogleForm の「都合の良い日時」→「都合の悪い日時」変更）を優先して着手する。
+**完了**。以下の実装方針どおりに実装済み。
+
+- バックエンド: `SCOPES` に `openid` / `userinfo.email` を追加し、
+  `exchange_code_for_token()` 内で id_token（署名検証はせず、サーバー間通信で
+  直接受け取った信頼済みトークンとしてクレームのみデコード）から email を抽出、
+  `oauth_email.json` に保存。`/api/auth/status` は
+  `{"authenticated": bool, "email": str | None}` を返すよう変更。
+- フロントエンド: ログイン状態バッジの取得・表示ロジックを `HomePage.tsx` から
+  `AppShell.tsx` 内部の `AuthBadge` コンポーネントへ移設し、`useQuery` を
+  `AppShell` 自身が呼ぶ形に一元化（全8画面で自動的にヘッダーへ表示される）。
+  `HomePage.tsx` 側の重複コードは削除。
+- 関連テスト（`backend/tests/test_google_auth.py` の email 抽出・保存・
+  `/api/auth/status` レスポンス、`frontend/tests/AppShell.test.tsx` の新規追加、
+  既存6ページのテストファイルへの `authApi` モック追加）を更新・追加し、
+  バックエンド155件・フロントエンド100件が通過することを確認済み。
+
+以下は実装前の調査記録（参考として残す）。
 
 ## 依頼内容
 

@@ -24,6 +24,10 @@ import * as api from '../src/api'
 import type { Project } from '../src/api/types'
 
 vi.mock('../src/api', () => ({
+  authApi: {
+    status: vi.fn(),
+    startGoogle: vi.fn(),
+  },
   scheduleApi: {
     run: vi.fn(),
   },
@@ -136,6 +140,7 @@ function renderSchedulePage(projectId = PROJECT_ID) {
 describe('SchedulePage', () => {
   beforeEach(() => {
     vi.resetAllMocks()
+    vi.mocked(api.authApi.status).mockResolvedValue({ authenticated: false })
     // Phase 4.4b で追加された API呼び出しのデフォルトモック
     vi.mocked(api.projectsApi.get).mockResolvedValue(MOCK_PROJECT)
     vi.mocked(api.responsesApi.list).mockResolvedValue(MOCK_RESPONSES)
@@ -211,6 +216,7 @@ describe('SchedulePage', () => {
 describe('Phase 4.4b: DnD と警告', () => {
   beforeEach(() => {
     vi.resetAllMocks()
+    vi.mocked(api.authApi.status).mockResolvedValue({ authenticated: false })
     vi.mocked(api.scheduleApi.run).mockResolvedValue(MOCK_RESULT_FEASIBLE)
     vi.mocked(api.projectsApi.get).mockResolvedValue(MOCK_PROJECT)
     vi.mocked(api.responsesApi.list).mockResolvedValue(MOCK_RESPONSES)
@@ -287,6 +293,7 @@ const MOCK_DRAFT = {
 describe('Phase 4.4c: 保存ボタン', () => {
   beforeEach(() => {
     vi.resetAllMocks()
+    vi.mocked(api.authApi.status).mockResolvedValue({ authenticated: false })
     vi.mocked(api.scheduleApi.run).mockResolvedValue(MOCK_RESULT_FEASIBLE)
     vi.mocked(api.projectsApi.get).mockResolvedValue(MOCK_PROJECT)
     vi.mocked(api.responsesApi.list).mockResolvedValue(MOCK_RESPONSES)
@@ -367,6 +374,7 @@ const EXISTING_DRAFT = {
 describe('既存ドラフトとロックの挙動', () => {
   beforeEach(() => {
     vi.resetAllMocks()
+    vi.mocked(api.authApi.status).mockResolvedValue({ authenticated: false })
     vi.mocked(api.projectsApi.get).mockResolvedValue(MOCK_PROJECT)
     vi.mocked(api.responsesApi.list).mockResolvedValue(MOCK_RESPONSES)
     vi.mocked(api.scheduleApi.run).mockResolvedValue({
@@ -771,6 +779,7 @@ describe('validateAssignments', () => {
 describe('手動入力 UI', () => {
   beforeEach(() => {
     vi.resetAllMocks()
+    vi.mocked(api.authApi.status).mockResolvedValue({ authenticated: false })
     vi.mocked(api.scheduleApi.run).mockResolvedValue(MOCK_RESULT_FEASIBLE)
     vi.mocked(api.projectsApi.get).mockResolvedValue(MOCK_PROJECT)
     vi.mocked(api.responsesApi.list).mockResolvedValue(MOCK_RESPONSES)
@@ -863,5 +872,65 @@ describe('手動入力 UI', () => {
       expect(screen.getByRole('button', { name: '保存' })).toBeInTheDocument()
     })
     expect(screen.queryByTestId('validation-alert')).not.toBeInTheDocument()
+  })
+})
+
+// ===== 「日程案の再生成」ボタン =====
+
+describe('日程案の再生成ボタン', () => {
+  beforeEach(() => {
+    vi.resetAllMocks()
+    vi.mocked(api.authApi.status).mockResolvedValue({ authenticated: false })
+    vi.mocked(api.projectsApi.get).mockResolvedValue(MOCK_PROJECT)
+    vi.mocked(api.responsesApi.list).mockResolvedValue(MOCK_RESPONSES)
+    vi.mocked(api.draftsApi.getLatest).mockRejectedValue(NO_DRAFT_ERROR)
+  })
+
+  it('「日程案の再生成」ボタンが表示される', async () => {
+    vi.mocked(api.scheduleApi.run).mockResolvedValue(MOCK_RESULT_FEASIBLE)
+    renderSchedulePage()
+    await waitFor(() => {
+      expect(
+        screen.getByRole('button', { name: '日程案の再生成' }),
+      ).toBeInTheDocument()
+    })
+  })
+
+  it('クリックすると scheduleApi.run が再度呼ばれ、結果が再表示される', async () => {
+    vi.mocked(api.scheduleApi.run).mockResolvedValue(MOCK_RESULT_FEASIBLE)
+    renderSchedulePage()
+
+    await waitFor(() => {
+      expect(vi.mocked(api.scheduleApi.run)).toHaveBeenCalledTimes(1)
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: '日程案の再生成' }))
+
+    await waitFor(() => {
+      expect(vi.mocked(api.scheduleApi.run)).toHaveBeenCalledTimes(2)
+    })
+    expect(screen.getAllByTestId('draggable-student-1').length).toBeGreaterThan(0)
+  })
+
+  it('ロック済みの生徒は再生成後も維持され、除外リストとして API に渡される', async () => {
+    vi.mocked(api.scheduleApi.run).mockResolvedValue(MOCK_RESULT_FEASIBLE)
+    renderSchedulePage()
+
+    await waitFor(() => {
+      expect(screen.getByTestId('draggable-student-1')).toBeInTheDocument()
+    })
+    // 生徒1のセルをロック
+    fireEvent.click(screen.getByTestId('cell-lock-button-2026-07-15|16:00'))
+    expect(screen.getByTestId('cell-locked-1')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: '日程案の再生成' }))
+
+    await waitFor(() => {
+      expect(vi.mocked(api.scheduleApi.run)).toHaveBeenCalledTimes(2)
+    })
+    const [, req] = vi.mocked(api.scheduleApi.run).mock.calls[1]
+    expect(req?.excluded_students).toContain(1)
+    // ロック済みの生徒1の配置は維持される
+    expect(screen.getByTestId('cell-locked-1')).toBeInTheDocument()
   })
 })

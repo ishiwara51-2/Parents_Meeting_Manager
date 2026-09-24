@@ -1184,6 +1184,13 @@ export default function SchedulePage() {
     runSchedule(nextLocked, responses, localAssignments, [])
   }
 
+  // 「日程案の再生成」ボタン用: ロック済みの配置はそのまま維持し、
+  // ロックされていない生徒だけを対象に自動配置をやり直す。
+  // 手動入力・DnD による未ロックの変更は破棄される（runSchedule と同じ挙動）。
+  function handleRegenerate() {
+    runSchedule(lockedStudents, responses, localAssignments, [])
+  }
+
   function handleStartEdit(cellId: string) {
     setEditingCellId(cellId)
   }
@@ -1390,6 +1397,17 @@ export default function SchedulePage() {
         { label: 'プロジェクト', to: `/projects/${projectId}` },
         { label: '日程案' },
       ]}
+      actions={
+        <Button
+          variant="secondary"
+          onClick={handleRegenerate}
+          disabled={loading || result == null}
+          data-testid="regenerate-schedule-button"
+          title="🔒 でロックした配置は維持したまま、それ以外の配置を自動生成し直します"
+        >
+          日程案の再生成
+        </Button>
+      }
       wide
     >
 

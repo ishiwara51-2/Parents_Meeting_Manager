@@ -12,6 +12,10 @@ import ProjectNewPage from '../src/pages/ProjectNewPage'
 import * as api from '../src/api'
 
 vi.mock('../src/api', () => ({
+  authApi: {
+    status: vi.fn(),
+    startGoogle: vi.fn(),
+  },
   projectsApi: {
     create: vi.fn(),
   },
@@ -67,6 +71,7 @@ function renderWithRoutes() {
 describe('ProjectNewPage', () => {
   beforeEach(() => {
     vi.resetAllMocks()
+    vi.mocked(api.authApi.status).mockResolvedValue({ authenticated: false })
     vi.mocked(api.rulesApi.getGlobal).mockResolvedValue(MOCK_RULES)
   })
 

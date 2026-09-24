@@ -22,11 +22,13 @@ OAuth2 認証を行う。役割は以下。
 from __future__ import annotations
 
 import json
+import logging
 import os
 import secrets
 from pathlib import Path
 from typing import Optional
 
+from google.auth import jwt as google_jwt
 from google.auth.transport.requests import Request as GoogleAuthRequest
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import Flow
@@ -34,11 +36,16 @@ from google_auth_oauthlib.flow import Flow
 from app.config import Settings, get_settings
 
 
-# requirements.md §2.1 必須スコープ
+logger = logging.getLogger(__name__)
+
+# requirements.md §2.1 必須スコープ + ヘッダーのメールアドレス表示用に
+# openid / userinfo.email を追加（ログイン状態ヘッダー表示、要再同意）
 SCOPES: list[str] = [
     "https://www.googleapis.com/auth/forms.body",
     "https://www.googleapis.com/auth/forms.responses.readonly",
     "https://www.googleapis.com/auth/drive.file",
+    "openid",
+    "https://www.googleapis.com/auth/userinfo.email",
 ]
 
 # requirements.md §8.5 固定 URI（GCP コンソール側にも同じ URI を登録すること）
@@ -50,6 +57,7 @@ STATE_BYTES: int = 32
 
 CLIENT_CONFIG_FILENAME = "oauth_client.json"
 TOKEN_FILENAME = "oauth_token.json"
+EMAIL_FILENAME = "oauth_email.json"
 
 # ``http://localhost`` での OAuth2 を許可（プロトタイプのみ）。
 # requirements.md §8.5 に準拠したローカル開発向けの暫定設定。
@@ -76,6 +84,16 @@ def _token_path(settings: Optional[Settings] = None) -> Path:
     """``oauth_token.json`` の絶対パスを返す。"""
     s = settings or get_settings()
     return s.config_dir / TOKEN_FILENAME
+
+
+def _email_path(settings: Optional[Settings] = None) -> Path:
+    """``oauth_email.json`` の絶対パスを返す。
+
+    ``oauth_token.json`` とは別ファイルに分離する（``Credentials.to_json()``/
+    ``from_authorized_user_info()`` のスキーマに email を混ぜて壊さないため）。
+    """
+    s = settings or get_settings()
+    return s.config_dir / EMAIL_FILENAME
 
 
 # ---------------------------------------------------------------------------
@@ -188,7 +206,51 @@ def exchange_code_for_token(
     flow.fetch_token(code=code)
     creds = flow.credentials
     _save_credentials(creds)
+    _save_email(_extract_email(creds))
     return creds
+
+
+def _extract_email(creds: Credentials) -> Optional[str]:
+    """``Credentials.id_token``（ID トークン JWT）から ``email`` クレームを取り出す。
+
+    id_token は認可コード交換のレスポンスとして Google のトークンエンドポイントから
+    HTTPS 経由で直接（サーバー間通信で）受け取ったものであり、ブラウザ経由で改ざん
+    され得る経路を通っていないため、署名検証（Google 公開鍵の取得＝追加のネットワーク
+    通信が必要）は行わずクレームのみをデコードする。
+    id_token が無い、またはデコードに失敗した場合は None を返し、認証自体は
+    失敗させない（email 表示はおまけ機能のため）。
+    """
+    id_token = getattr(creds, "id_token", None)
+    if not id_token:
+        return None
+    try:
+        claims = google_jwt.decode(id_token, verify=False)
+    except Exception:
+        logger.exception("ID token decode failed; email will be unavailable")
+        return None
+    return claims.get("email")
+
+
+def _save_email(email: Optional[str]) -> Path:
+    """認証済みユーザーの email を ``oauth_email.json`` に保存する。"""
+    settings = get_settings()
+    settings.ensure_directories()
+    path = _email_path(settings)
+    path.write_text(json.dumps({"email": email}), encoding="utf-8")
+    return path
+
+
+def get_authenticated_email() -> Optional[str]:
+    """保存済みの認証済みユーザー email を返す（無ければ None）。
+
+    ``/api/auth/status`` から毎回呼ばれる想定のため、ディスク読み込みのみで
+    完結させ、Google への通信は行わない。
+    """
+    path = _email_path()
+    if not path.exists():
+        return None
+    info = json.loads(path.read_text(encoding="utf-8"))
+    return info.get("email")
 
 
 def load_credentials() -> Optional[Credentials]:
@@ -239,4 +301,5 @@ __all__ = [
     "load_credentials",
     "get_valid_credentials",
     "is_authenticated",
+    "get_authenticated_email",
 ]

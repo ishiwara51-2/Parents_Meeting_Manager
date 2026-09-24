@@ -102,10 +102,13 @@ Google Forms / Drive API を利用するには、GCP プロジェクトの設定
 3. アプリ名・サポートメール・デベロッパーメールを入力（個人利用のためダミーで可）
 4. **公開ステータス**: `Testing` のままにする
 5. **テストユーザー**: 実装者本人の Google アカウントを追加（追加しないと認可時に拒否される）
-6. **スコープ**: 以下の 3 つを「スコープを追加または削除」から追加
+6. **スコープ**: 以下の 5 つを「スコープを追加または削除」から追加
    - `https://www.googleapis.com/auth/forms.body`
    - `https://www.googleapis.com/auth/forms.responses.readonly`
    - `https://www.googleapis.com/auth/drive.file`
+   - `openid`
+   - `https://www.googleapis.com/auth/userinfo.email`
+     （ヘッダーのログイン状態表示にメールアドレスを出すために使用）
 
 ### 4. OAuth クライアント ID の発行
 
@@ -137,7 +140,11 @@ Google Forms / Drive API を利用するには、GCP プロジェクトの設定
 2. 右上の「Google でログイン」ボタンをクリック（または `http://localhost:8000/api/auth/google` へ直接アクセス）
 3. Google アカウント選択 → スコープに同意
 4. 認証完了後、`oauth_token.json` がディスクに保存される
-5. `http://localhost:8000/api/auth/status` で `{"status":"authorized"}` が返れば成功
+5. `http://localhost:8000/api/auth/status` で `{"authenticated":true,"email":"..."}` が返れば成功
+
+> 既に一度ログイン済みの場合でも、`openid`/`userinfo.email` スコープ追加後は
+> 一度ログアウト（`oauth_token.json` / `oauth_email.json` を削除）して再ログインしないと
+> メールアドレスが表示されません（スコープの再同意が必要なため）。
 
 ---
 

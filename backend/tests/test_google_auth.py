@@ -19,6 +19,7 @@ OAuth フローの「実 Google 通信」はモック（``unittest.mock``）で�
 
 from __future__ import annotations
 
+import base64
 import datetime as _dt
 import json
 from pathlib import Path
@@ -70,6 +71,21 @@ def fake_oauth_client(isolated_data_root: Path) -> Path:
     return client_path
 
 
+def _make_fake_id_token(*, email: str) -> str:
+    """署名検証なし（``verify=False``）でデコード可能なダミー ID トークンを作る。
+
+    ``_extract_email`` は id_token をサーバー間通信で直接受け取った信頼済みの
+    ものとして署名検証せずデコードするため、テストでも実際の RS256 署名は不要。
+    """
+
+    def _b64(obj: dict) -> bytes:
+        return base64.urlsafe_b64encode(json.dumps(obj).encode("utf-8")).rstrip(b"=")
+
+    header = _b64({"alg": "RS256", "typ": "JWT"})
+    payload = _b64({"email": email, "sub": "123456"})
+    return (header + b"." + payload + b"." + b"fake-signature").decode("ascii")
+
+
 def _make_credentials_json(*, token: str, expired: bool) -> str:
     """テスト用の oauth_token.json 相当の JSON 文字列を組み立てる。
 
@@ -105,6 +121,9 @@ def test_authorization_url_contains_required_scopes_and_state(
     assert "forms.body" in url
     assert "forms.responses.readonly" in url
     assert "drive.file" in url
+    # ログイン状態ヘッダーの email 表示用スコープ
+    assert "openid" in url
+    assert "userinfo.email" in url
     # state パラメータ（CSRF 対策）
     assert "state=" in url
     # secrets.token_urlsafe(32) 由来で 32 文字以上
@@ -146,6 +165,50 @@ def test_exchange_code_saves_token_via_mocked_flow(fake_oauth_client: Path) -> N
     saved = json.loads(token_path.read_text(encoding="utf-8"))
     assert saved["token"] == "new-access-token"
     assert saved["refresh_token"] == "new-refresh-token"
+
+
+def test_exchange_code_extracts_and_persists_email_from_id_token(
+    fake_oauth_client: Path,
+) -> None:
+    """id_token の email クレームを oauth_email.json に保存し、後から読み出せる。"""
+    from app.services import google_auth
+
+    fake_creds = MagicMock()
+    fake_creds.to_json.return_value = json.dumps({"token": "new-access-token"})
+    fake_creds.id_token = _make_fake_id_token(email="teacher@example.com")
+
+    fake_flow = MagicMock()
+    fake_flow.credentials = fake_creds
+
+    with patch.object(google_auth, "_build_flow", return_value=fake_flow):
+        google_auth.exchange_code_for_token(code="dummy-code", state="dummy-state")
+
+    settings = get_settings()
+    email_path = settings.config_dir / "oauth_email.json"
+    assert email_path.exists()
+    assert json.loads(email_path.read_text(encoding="utf-8")) == {
+        "email": "teacher@example.com"
+    }
+    assert google_auth.get_authenticated_email() == "teacher@example.com"
+
+
+def test_exchange_code_without_id_token_leaves_email_none(
+    fake_oauth_client: Path,
+) -> None:
+    """id_token が無い（email スコープ未許可等）場合は email=None として扱う。"""
+    from app.services import google_auth
+
+    fake_creds = MagicMock()
+    fake_creds.to_json.return_value = json.dumps({"token": "new-access-token"})
+    fake_creds.id_token = None
+
+    fake_flow = MagicMock()
+    fake_flow.credentials = fake_creds
+
+    with patch.object(google_auth, "_build_flow", return_value=fake_flow):
+        google_auth.exchange_code_for_token(code="dummy-code", state="dummy-state")
+
+    assert google_auth.get_authenticated_email() is None
 
 
 # ---------- 3. 既存トークンを読み込める ----------
@@ -204,13 +267,38 @@ def test_expired_token_is_refreshed_and_persisted(fake_oauth_client: Path) -> No
 def test_auth_status_returns_unauthorized_when_no_token(
     isolated_data_root: Path,
 ) -> None:
-    """oauth_token.json が無ければ status=unauthorized を返す。"""
+    """oauth_token.json が無ければ authenticated=False, email=None を返す。"""
     app = create_app()
     with TestClient(app) as client:
         response = client.get("/api/auth/status")
 
     assert response.status_code == 200
-    assert response.json()["status"] == "unauthorized"
+    assert response.json() == {"authenticated": False, "email": None}
+
+
+def test_auth_status_returns_email_when_authenticated(
+    isolated_data_root: Path,
+) -> None:
+    """oauth_token.json と oauth_email.json がある場合は email を含めて返す。"""
+    settings = get_settings()
+    settings.ensure_directories()
+    (settings.config_dir / "oauth_token.json").write_text(
+        _make_credentials_json(token="stored-access-token", expired=False),
+        encoding="utf-8",
+    )
+    (settings.config_dir / "oauth_email.json").write_text(
+        json.dumps({"email": "teacher@example.com"}), encoding="utf-8"
+    )
+
+    app = create_app()
+    with TestClient(app) as client:
+        response = client.get("/api/auth/status")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "authenticated": True,
+        "email": "teacher@example.com",
+    }
 
 
 # ---------- 6. state 不一致でコールバックが 400 ----------
