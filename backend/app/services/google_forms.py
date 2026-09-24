@@ -41,13 +41,21 @@ from app.services import google_auth
 logger = logging.getLogger(__name__)
 
 
-# matrix に追加する「一括選択」用の特殊な列・行。
-# Google Forms のグリッド質問はネイティブに「行/列の一括選択」を持たないため、
-# 追加の列（＝各日の行に対する「終日OK」）と追加の行（＝各時間枠に対する
-# 「すべての日でOK」）をデータとして matrix に組み込み、回答パース側
-# （app.services.polling._resolve_time_pairs）で実際の候補日×時間枠へ展開する。
-SELECT_ALL_TIMES_COLUMN_LABEL = "終日（すべての時間帯）"
-SELECT_ALL_DATES_ROW_TITLE = "すべての日（共通で使える時間帯があれば）"
+# matrix に追加する「一括選択」用の特殊な列。
+# Google Forms のグリッド質問はネイティブに「行の一括選択」を持たないため、
+# 追加の列（＝各日の行に対する「終日NG」）をデータとして matrix に組み込み、
+# 回答パース側（app.services.polling._resolve_time_pairs / _parse_availability）
+# で実際の候補日×時間枠へ展開する。
+#
+# （末尾に「すべての日」一括選択行を追加する案もあったが、候補日が増えるほど
+#  「個別日の回答」と「すべての日の一括回答」の優先順位が保護者に伝わりにくく
+#  分かりづらいため廃止した。各日ごとに個別入力してもらう）
+#
+# 本 matrix は「都合の悪い（参加できない）日時」にチェックを入れてもらう設計
+# （チェック＝NG、未チェック＝参加可能）。``_parse_availability`` 側で
+# 候補日時全体からチェック済み（NG）分を差し引いた補集合を
+# ``Response.availability``（＝参加可能な日時）として組み立てる。
+SELECT_ALL_TIMES_COLUMN_LABEL = "終日NG（すべての時間帯が都合悪い）"
 
 # 自由記述コメント欄。Forms API の TextQuestion には文字数バリデーションが
 # 無いため（`forms_api_research.md` §5）、100 文字超の入力に対する防御は
@@ -56,12 +64,22 @@ COMMENT_QUESTION_TITLE = "面談についてのご要望・コメント（任意
 COMMENT_MAX_LENGTH = 100
 
 # Form 説明文（タイトル直下に表示）。同じ出席番号で複数回送信された場合の
-# 取り扱いをあらかじめ周知する（``app.repositories.file_repository.
-# list_latest_per_student`` が submitted_at 最新の回答のみを採用する仕様）。
+# 取り扱いをあらかじめ周知するのに加え、本 Form が「都合の悪い日時」を
+# 聞くものであることをタイトル直下でも強調する（一番目に入りやすい位置のため）。
+#
+# 3つの注意事項を含むため、①②③の番号を付けて視覚的に区切る。
+# Forms API の description は改行文字（"\n" 等）を含めると
+# 「Displayed text cannot contain newlines」で 400 エラーになるため、
+# 改行の代わりに番号と全角スペースで区切りを表現する（実機で確認済み）。
 FORM_DESCRIPTION = (
-    "同じ出席番号で2回以上回答を送信した場合、日程調整には"
-    "最後に送信した内容のみが使用されます（古い回答は無視されます）。"
-    "内容を修正したい場合は、このFormから再度送信してください。"
+    "【ご注意】"
+    "①このFormでは「都合の悪い（参加できない）日時」にチェックを入れてください。"
+    "　"
+    "②チェックしなかった日時は「参加可能」として扱われます。"
+    "　"
+    "③同じ出席番号で2回以上回答を送信した場合、日程調整には最後に送信した"
+    "内容のみが使用されます（古い回答は無視されます。内容を修正したい場合は、"
+    "このFormから再度送信してください）。"
 )
 
 
@@ -127,27 +145,33 @@ def _build_matrix_item(
         - ``QuestionGroupItem`` + ``Grid``
         - ``columns.type=CHECKBOX``（複数選択可）
         - 各行 = 候補日（``rowQuestion.title`` に ISO 文字列を入れる）
-        - 各 row に ``required=False``（0 枠の日を許容するため。
-          全日不可は ``_parse_availability`` が空リストを返すことで自然に扱える）
+        - 各 row に ``required=False``（0 枠チェックの日を許容するため。
+          チェックが1つも無い日は「その日は終日都合が悪い時間帯が無い
+          （＝終日参加可能）」として ``_parse_availability`` が扱う）
         - ``shuffleQuestions=False``（日付順を維持）
 
-    Google Forms のグリッドには行/列を一括選択する機能が無いため、
-    ``SELECT_ALL_TIMES_COLUMN_LABEL``（各日の行に追加する「終日」列）と
-    ``SELECT_ALL_DATES_ROW_TITLE``（末尾に追加する「すべての日」行）を
-    通常の列・行として組み込む。回答パース側でこれらのチェックを
+    Google Forms のグリッドには行を一括選択する機能が無いため、
+    ``SELECT_ALL_TIMES_COLUMN_LABEL``（各日の行に追加する「終日NG」列）を
+    通常の列として組み込む。回答パース側でこのチェックを
     実際の候補日×時間枠へ展開する。
+
+    本 matrix は「都合の悪い（参加できない）日時」にチェックしてもらう設計
+    （チェック＝NG）。タイトルで強調しつつ、``_parse_availability`` 側で
+    候補日時全体からチェック済み分を差し引いた補集合を
+    ``Response.availability``（＝参加可能な日時）として組み立てる。
     """
     return {
         "createItem": {
             "location": {"index": 1},
             "item": {
                 "title": (
-                    "参加可能な日時にチェックを入れてください"
-                    "（複数選択可、参加不可の日は空欄で可）。"
+                    "⚠【重要】都合の悪い（参加できない）日時にチェックを"
+                    "入れてください⚠"
+                    "※チェックした日時＝参加できない時間帯です。"
+                    "チェックしなかった日時は「参加可能」として扱われます。"
+                    "（複数選択可、都合の良い日は空欄のままで構いません）。"
                     f"「{SELECT_ALL_TIMES_COLUMN_LABEL}」にチェックするとその日は"
-                    "すべての時間帯を選択したことになります。"
-                    f"「{SELECT_ALL_DATES_ROW_TITLE}」の行でチェックした時間帯は"
-                    "すべての候補日で選択されます。"
+                    "終日すべての時間帯が都合悪いものとして扱われます。"
                 ),
                 "questionGroupItem": {
                     "grid": {
@@ -169,12 +193,6 @@ def _build_matrix_item(
                             "rowQuestion": {"title": date_str},
                         }
                         for date_str in candidate_dates
-                    ]
-                    + [
-                        {
-                            "required": False,
-                            "rowQuestion": {"title": SELECT_ALL_DATES_ROW_TITLE},
-                        }
                     ],
                 },
             },
@@ -301,32 +319,29 @@ def _extract_comment_qid(batch_response: dict[str, Any]) -> str | None:
 
 def _extract_row_qids_from_batch(
     batch_response: dict[str, Any], *, candidate_dates: list[str]
-) -> tuple[dict[str, str], str | None]:
+) -> dict[str, str]:
     """``batchUpdate`` 応答から matrix 行 questionId を取り出す。
 
-    行は ``[*candidate_dates, SELECT_ALL_DATES_ROW_TITLE]`` の順で作成しているため
-    （``_build_matrix_item``）、応答の questionId 配列も同じ順序・件数
-    （候補日数 + 1）である想定で分解する。件数が合わない・空要素を含む場合は
-    ``({}, None)`` を返し、呼び出し元が ``forms.get`` フォールバックへ回す。
+    行は ``candidate_dates`` の順で作成しているため（``_build_matrix_item``）、
+    応答の questionId 配列も同じ順序・件数（候補日数）である想定で分解する。
+    件数が合わない・空要素を含む場合は ``{}`` を返し、呼び出し元が
+    ``forms.get`` フォールバックへ回す。
     """
     try:
         qid_list = (
             batch_response["replies"][1]["createItem"]["questionId"]
         )
     except (KeyError, IndexError, TypeError):
-        return {}, None
+        return {}
     qid_list = list(qid_list) if qid_list else []
-    if len(qid_list) != len(candidate_dates) + 1 or not all(qid_list):
-        return {}, None
-    row_question_id_by_date = dict(
-        zip(candidate_dates, qid_list[:-1], strict=True)
-    )
-    return row_question_id_by_date, qid_list[-1]
+    if len(qid_list) != len(candidate_dates) or not all(qid_list):
+        return {}
+    return dict(zip(candidate_dates, qid_list, strict=True))
 
 
 def _extract_row_qids_from_form(
     form_get_response: dict[str, Any], *, candidate_dates: list[str]
-) -> tuple[dict[str, str], str | None]:
+) -> dict[str, str]:
     """``forms.get`` 応答から「候補日 → 行 questionId」マップを構築する。
 
     レスポンス構造（`forms_api_research.md` §2 / Forms API リファレンス）::
@@ -338,13 +353,9 @@ def _extract_row_qids_from_form(
                 questions: [
                     { questionId: ..., rowQuestion: { title: "YYYY-MM-DD" } },
                     ...
-                    { questionId: ..., rowQuestion: { title: SELECT_ALL_DATES_ROW_TITLE } },
                 ]
             }}
         ]
-
-    「すべての日」行は ``rowQuestion.title`` で識別し、別枠の戻り値
-    （2 要素目）として返す。
     """
     items = form_get_response.get("items") or []
     for item in items:
@@ -361,11 +372,7 @@ def _extract_row_qids_from_form(
                 by_title[title] = qid
         if by_title:
             # 候補日順に揃え直して返す（候補日に該当しないキーは除外）
-            row_question_id_by_date = {
-                d: by_title[d] for d in candidate_dates if d in by_title
-            }
-            select_all_dates_qid = by_title.get(SELECT_ALL_DATES_ROW_TITLE)
-            return row_question_id_by_date, select_all_dates_qid
+            return {d: by_title[d] for d in candidate_dates if d in by_title}
 
     raise RuntimeError(
         "forms.get 応答から matrix 行 questionId が抽出できません。"
@@ -453,10 +460,10 @@ def create_form(project: Project) -> FormInfo:
     # コメント questionId（任意項目のため、取得失敗は None のまま継続）
     comment_qid = _extract_comment_qid(batch_response)
 
-    # 3. matrix 行 questionId（候補日 + 「すべての日」行）は batchUpdate 応答に
-    #    含まれることもあるが、公式リファレンスに明記が無いため、
+    # 3. matrix 行 questionId（候補日ごと）は batchUpdate 応答に含まれる
+    #    こともあるが、公式リファレンスに明記が無いため、
     #    取得できなければフォールバックで forms.get
-    row_question_id_by_date, select_all_dates_qid = _extract_row_qids_from_batch(
+    row_question_id_by_date = _extract_row_qids_from_batch(
         batch_response, candidate_dates=candidate_dates
     )
     if row_question_id_by_date:
@@ -473,7 +480,7 @@ def create_form(project: Project) -> FormInfo:
         form_get_response: dict[str, Any] = forms_api.get(
             formId=form_id
         ).execute()
-        row_question_id_by_date, select_all_dates_qid = _extract_row_qids_from_form(
+        row_question_id_by_date = _extract_row_qids_from_form(
             form_get_response, candidate_dates=candidate_dates
         )
 
@@ -485,7 +492,6 @@ def create_form(project: Project) -> FormInfo:
         comment_question_id=comment_qid,
         row_question_id_by_date=row_question_id_by_date,
         time_slot_labels=time_slot_labels,
-        select_all_dates_row_question_id=select_all_dates_qid,
     )
 
 
@@ -493,7 +499,6 @@ __all__ = [
     "create_form",
     "GoogleAuthRequiredError",
     "SELECT_ALL_TIMES_COLUMN_LABEL",
-    "SELECT_ALL_DATES_ROW_TITLE",
     "COMMENT_MAX_LENGTH",
     "FORM_DESCRIPTION",
 ]

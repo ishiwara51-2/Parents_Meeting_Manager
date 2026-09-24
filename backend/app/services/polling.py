@@ -322,43 +322,46 @@ def _parse_availability(
     *,
     row_question_id_by_date: dict[str, str],
     time_slot_labels: list[str],
-    select_all_dates_row_question_id: str | None = None,
 ) -> list[Availability]:
-    """matrix 回答を ``Availability`` のリストに変換する。
+    """matrix 回答を ``Availability``（参加可能な日時）のリストに変換する。
 
     `forms_api_research.md` §4 のパース疑似コードに準拠：
         - 行 questionId に対応する CHECKBOX 値（``HH:MM-HH:MM``）を分解し
           ``date / start / end`` に格納
 
     加えて、Google Forms のグリッドに一括選択機能が無いことを補うため
-    matrix に組み込んだ2種の「一括選択」を実際の候補日×時間枠へ展開する：
-        - 各日の行の「終日」列 → その日のすべての時間枠として展開
-        - 末尾の「すべての日」行 → 選択された時間枠をすべての候補日へ展開
-    （``_resolve_time_pairs`` / ``app.services.google_forms`` 参照）
+    matrix に組み込んだ「終日NG」列（各日の行に追加）を実際の候補日×時間枠へ
+    展開する（``_resolve_time_pairs`` / ``app.services.google_forms`` 参照）。
+
+    ``app.services.google_forms`` の matrix は「都合の悪い（参加できない）
+    日時」にチェックを入れてもらう設計（チェック＝NG）。一方、スケジューラ
+    （``app.services.scheduler``）とフロントエンド（``SchedulePage.tsx`` の
+    ``isInAvailability`` 等）は既存どおり ``Response.availability`` を
+    「参加可能な日時の集合」として扱う。そのため本関数ではまずチェック済み
+    （＝NG）の日時集合を ``unavailable`` に組み立てた後、候補日時全体
+    （``time_slot_labels`` × 各候補日）からそれを差し引いた **補集合** を
+    最終的な ``availability`` として返す。ある日について1つもチェックが
+    無ければ、その日は「終日都合が悪い時間帯が無い（＝終日参加可能）」と
+    解釈される。
     """
-    resolved: dict[str, set[tuple[str, str]]] = {
+    unavailable: dict[str, set[tuple[str, str]]] = {
         date_str: set() for date_str in row_question_id_by_date
     }
 
     for date_str, row_qid in row_question_id_by_date.items():
         labels = _extract_selected_labels(answers.get(row_qid))
-        resolved[date_str].update(
+        unavailable[date_str].update(
             _resolve_time_pairs(labels, time_slot_labels=time_slot_labels)
         )
 
-    if select_all_dates_row_question_id:
-        common_labels = _extract_selected_labels(
-            answers.get(select_all_dates_row_question_id)
-        )
-        common_pairs = _resolve_time_pairs(
-            common_labels, time_slot_labels=time_slot_labels
-        )
-        for date_str in resolved:
-            resolved[date_str].update(common_pairs)
+    # 候補時間帯全体（NG 集合との補集合を取るための母集合）。
+    all_pairs: set[tuple[str, str]] = set(
+        _resolve_time_pairs(time_slot_labels, time_slot_labels=time_slot_labels)
+    )
 
     availability: list[Availability] = []
-    for date_str, pairs in resolved.items():
-        for start_str, end_str in pairs:
+    for date_str, ng_pairs in unavailable.items():
+        for start_str, end_str in all_pairs - ng_pairs:
             try:
                 availability.append(
                     Availability(date=date_str, start=start_str, end=end_str)
@@ -439,7 +442,6 @@ def _parse_response(
         answers,
         row_question_id_by_date=form_info.row_question_id_by_date,
         time_slot_labels=form_info.time_slot_labels,
-        select_all_dates_row_question_id=form_info.select_all_dates_row_question_id,
     )
 
     # 4. コメント（自由記述、任意）

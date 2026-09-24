@@ -28,7 +28,6 @@ from app.config import get_settings
 from app.main import create_app
 from app.services.google_forms import (
     FORM_DESCRIPTION,
-    SELECT_ALL_DATES_ROW_TITLE,
     SELECT_ALL_TIMES_COLUMN_LABEL,
 )
 
@@ -137,13 +136,6 @@ class FakeFormsApi:
                                 "questionId": "QID_ROW_1",
                                 "required": False,
                                 "rowQuestion": {"title": "2026-07-16"},
-                            },
-                            {
-                                "questionId": "QID_ROW_ALL",
-                                "required": False,
-                                "rowQuestion": {
-                                    "title": SELECT_ALL_DATES_ROW_TITLE
-                                },
                             },
                         ],
                     },
@@ -316,13 +308,14 @@ def test_matrix_rows_and_columns_match_project_definition(
         SELECT_ALL_TIMES_COLUMN_LABEL,
     ]
 
-    # rows: 候補日が ISO 文字列で順序通り、末尾に「すべての日」一括選択行を追加。
-    # 各 row は required=False（0 枠の日を許容するため。すべての日が空でも回答送信可能）
+    # rows: 候補日が ISO 文字列で順序通り。
+    # 各 row は required=False（0 枠チェックの日を許容するため。
+    # チェックが無い日は「終日都合が悪い時間帯が無い」＝終日参加可能として扱われる）
     questions = qgi["questions"]
     row_titles = [q["rowQuestion"]["title"] for q in questions]
-    assert row_titles == ["2026-07-15", "2026-07-16", SELECT_ALL_DATES_ROW_TITLE]
+    assert row_titles == ["2026-07-15", "2026-07-16"]
     for q in questions:
-        assert q["required"] is False, "0 枠の日を許容するため各行は required=False"
+        assert q["required"] is False, "0 枠チェックの日を許容するため各行は required=False"
 
 
 # ---------------------------------------------------------------------------
@@ -371,8 +364,6 @@ def test_forms_get_called_to_resolve_row_question_ids(
         "2026-07-15": "QID_ROW_0",
         "2026-07-16": "QID_ROW_1",
     }
-    # 「すべての日」行の questionId も forms.get 応答から解決される
-    assert saved["select_all_dates_row_question_id"] == "QID_ROW_ALL"
     # コメント questionId は forms.get を待たず batchUpdate 応答から解決される
     assert saved["comment_question_id"] == "QID_COMMENT"
 
@@ -399,8 +390,8 @@ def test_forms_get_skipped_when_batch_response_includes_row_question_ids(
                 {
                     "createItem": {
                         "itemId": "ITEM_MATRIX",
-                        # 候補日2件 + 「すべての日」一括選択行の計3件
-                        "questionId": ["QID_ROW_A", "QID_ROW_B", "QID_ROW_ALL"],
+                        # 候補日2件分
+                        "questionId": ["QID_ROW_A", "QID_ROW_B"],
                     }
                 },
                 {
@@ -444,8 +435,6 @@ def test_forms_get_skipped_when_batch_response_includes_row_question_ids(
         "2026-07-15": "QID_ROW_A",
         "2026-07-16": "QID_ROW_B",
     }
-    # 末尾の「すべての日」行の questionId も別枠で保存される
-    assert saved["select_all_dates_row_question_id"] == "QID_ROW_ALL"
     # コメント questionId も batchUpdate 応答から保存される
     assert saved["comment_question_id"] == "QID_COMMENT"
 

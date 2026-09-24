@@ -50,16 +50,11 @@ def _sample_project_payload() -> dict:
     }
 
 
-def _create_project_and_form_json(
-    client: TestClient, *, with_select_all_row: bool = False
-) -> str:
+def _create_project_and_form_json(client: TestClient) -> str:
     """テスト用プロジェクトを作成し、`form.json` を直接ディスクに置く。
 
     Form 作成 API はモックが大変なので、本テストでは ``FileProjectRepository.save_form_info``
     を直接呼び出して `form.json` を保存しておく（Phase 2.2 で動作確認済み）。
-
-    ``with_select_all_row=True`` の場合、matrix 末尾の「すべての日」一括選択行
-    （questionId=``QID_ROW_ALL``）を ``form.json`` に含める。
     """
     resp = client.post("/api/projects", json=_sample_project_payload())
     assert resp.status_code == 201, resp.text
@@ -78,7 +73,6 @@ def _create_project_and_form_json(
             "2026-07-16": "QID_ROW_1",
         },
         time_slot_labels=["16:00-16:20", "16:20-16:40"],
-        select_all_dates_row_question_id="QID_ROW_ALL" if with_select_all_row else None,
     )
     repo.save_form_info(project_id, form_info)
     return project_id
@@ -91,7 +85,6 @@ def _make_form_response(
     submitted_at: str = "2026-06-28T15:30:12.000Z",
     row0_slots: list[str] | None = None,
     row1_slots: list[str] | None = None,
-    row_all_slots: list[str] | None = None,
     comment: str | None = None,
 ) -> dict[str, Any]:
     """Forms API の ``forms.responses.list`` 風レスポンス1件を組み立てる。
@@ -101,8 +94,6 @@ def _make_form_response(
     - ``answers[<qid>].textAnswers.answers[]`` に ``{value: ...}`` が並ぶ
     - CHECKBOX 行は複数値、TextQuestion は 1 値
 
-    ``row_all_slots`` は matrix 末尾の「すべての日」一括選択行
-    （questionId=``QID_ROW_ALL``）への回答。
     ``comment`` は自由記述コメント欄（questionId=``QID_COMMENT``）への回答。
     """
     answers: dict[str, Any] = {
@@ -123,11 +114,6 @@ def _make_form_response(
             },
         },
     }
-    if row_all_slots is not None:
-        answers["QID_ROW_ALL"] = {
-            "questionId": "QID_ROW_ALL",
-            "textAnswers": {"answers": [{"value": v} for v in row_all_slots]},
-        }
     if comment is not None:
         answers["QID_COMMENT"] = {
             "questionId": "QID_COMMENT",
@@ -470,11 +456,15 @@ def test_sync_responses_parses_matrix_via_row_question_id_map(
     isolated_data_root: Path, fake_creds: object
 ) -> None:
     """form.json の ``row_question_id_by_date`` を使い、各行 questionId に対する
-    複数選択回答をパースして ``availability`` を組み立てる。
+    複数選択回答（＝都合が悪い時間帯）をパースし、その補集合を ``availability``
+    （＝参加可能な時間帯）として組み立てる。
 
     `forms_api_research.md` §4 のパース疑似コードに準拠：
         - 行 = 候補日
         - 列 = 時間枠ラベル（``HH:MM-HH:MM``）を ``"-"`` で分解して start/end
+
+    Form はチェック済み＝「都合が悪い」として回答を集めるため、
+    ``availability`` にはチェックされ**なかった**枠のみが入る。
     """
     from app.services import polling
 
@@ -485,9 +475,9 @@ def test_sync_responses_parses_matrix_via_row_question_id_map(
                     _make_form_response(
                         response_id="R1",
                         student_number="1",
-                        # 行 0（2026-07-15）に 2 つの時間枠選択
+                        # 行 0（2026-07-15）は2枠とも都合が悪いとしてチェック
                         row0_slots=["16:00-16:20", "16:20-16:40"],
-                        # 行 1（2026-07-16）に 1 つの時間枠選択
+                        # 行 1（2026-07-16）は 1 枠のみ都合が悪いとしてチェック
                         row1_slots=["16:20-16:40"],
                     ),
                 ]
@@ -520,14 +510,13 @@ def test_sync_responses_parses_matrix_via_row_question_id_map(
     assert saved["google_form_response_id"] == "R1"
 
     availability = saved["availability"]
-    # 期待：2026-07-15 から 2 枠、2026-07-16 から 1 枠（合計 3）
-    assert len(availability) == 3
+    # 期待：2026-07-15 は2枠とも都合悪でチェック済み → 参加可能枠なし（0）
+    #       2026-07-16 は 16:20-16:40 のみ都合悪 → 16:00-16:20 のみ参加可能（1）
+    assert len(availability) == 1
     # 順序は内部実装に依存しないように、集合化で比較
     triples = {(a["date"], a["start"], a["end"]) for a in availability}
     assert triples == {
-        ("2026-07-15", "16:00:00", "16:20:00"),
-        ("2026-07-15", "16:20:00", "16:40:00"),
-        ("2026-07-16", "16:20:00", "16:40:00"),
+        ("2026-07-16", "16:00:00", "16:20:00"),
     }
 
 
@@ -539,9 +528,10 @@ def test_sync_responses_parses_matrix_via_row_question_id_map(
 def test_sync_responses_expands_select_all_times_column(
     isolated_data_root: Path, fake_creds: object
 ) -> None:
-    """行（候補日）の「終日（すべての時間帯）」列がチェックされた場合、
+    """行（候補日）の「終日NG（すべての時間帯が都合悪い）」列がチェックされた場合、
     その日の個別チェックの有無にかかわらず、その日の全時間枠が
-    availability に展開される。
+    「都合が悪い」として展開され、その日は availability から除外される
+    （＝参加可能枠が無くなる）。
     """
     from app.services import polling
     from app.services.google_forms import SELECT_ALL_TIMES_COLUMN_LABEL
@@ -553,9 +543,9 @@ def test_sync_responses_expands_select_all_times_column(
                     _make_form_response(
                         response_id="R1",
                         student_number="1",
-                        # 2026-07-15: 「終日」のみチェック（個別枠は未チェック）
+                        # 2026-07-15: 「終日NG」のみチェック（個別枠は未チェック）
                         row0_slots=[SELECT_ALL_TIMES_COLUMN_LABEL],
-                        # 2026-07-16: 通常どおり 1 枠のみ選択
+                        # 2026-07-16: 通常どおり 1 枠のみ都合が悪いとしてチェック
                         row1_slots=["16:20-16:40"],
                     ),
                 ]
@@ -584,78 +574,14 @@ def test_sync_responses_expands_select_all_times_column(
 
     triples = {(a["date"], a["start"], a["end"]) for a in saved["availability"]}
     assert triples == {
-        # 「終日」展開により 2026-07-15 は 2 枠とも選択されたことになる
-        ("2026-07-15", "16:00:00", "16:20:00"),
-        ("2026-07-15", "16:20:00", "16:40:00"),
-        ("2026-07-16", "16:20:00", "16:40:00"),
+        # 「終日NG」展開により 2026-07-15 は 2 枠とも都合悪 → 参加可能枠なし
+        # 2026-07-16 は 16:20-16:40 のみ都合悪 → 16:00-16:20 のみ参加可能
+        ("2026-07-16", "16:00:00", "16:20:00"),
     }
 
 
 # ---------------------------------------------------------------------------
-# 4c. 「すべての日」行の一括選択：チェックした時間枠が全候補日へ展開される
-# ---------------------------------------------------------------------------
-
-
-def test_sync_responses_expands_select_all_dates_row(
-    isolated_data_root: Path, fake_creds: object
-) -> None:
-    """matrix 末尾の「すべての日」行でチェックした時間枠は、
-    各候補日の個別選択と統合（和集合）されて availability に展開される。
-    """
-    from app.services import polling
-
-    resp_resource = _FakeResponsesResource(
-        [
-            {
-                "responses": [
-                    _make_form_response(
-                        response_id="R1",
-                        student_number="1",
-                        # 2026-07-15 は個別に 1 枠だけ選択済み
-                        row0_slots=["16:00-16:20"],
-                        row1_slots=[],
-                        # 「すべての日」行で 16:20-16:40 をチェック
-                        # → 2026-07-15 / 2026-07-16 の両方に適用される
-                        row_all_slots=["16:20-16:40"],
-                    ),
-                ]
-            }
-        ]
-    )
-
-    with TestClient(create_app()) as client:
-        project_id = _create_project_and_form_json(
-            client, with_select_all_row=True
-        )
-        with (
-            patch(
-                "app.services.polling.google_auth.get_valid_credentials",
-                return_value=fake_creds,
-            ),
-            patch(
-                "app.services.polling.build",
-                return_value=_make_service_with_responses(resp_resource),
-            ),
-            patch("app.services.polling.time.sleep"),
-        ):
-            polling.sync_responses(project_id)
-
-    settings = get_settings()
-    sn1_dir = settings.projects_dir / project_id / "responses" / "1"
-    saved = json.loads(next(sn1_dir.glob("*.json")).read_text(encoding="utf-8"))
-
-    triples = {(a["date"], a["start"], a["end"]) for a in saved["availability"]}
-    assert triples == {
-        # 2026-07-15: 個別選択（16:00-16:20）+「すべての日」展開（16:20-16:40）
-        ("2026-07-15", "16:00:00", "16:20:00"),
-        ("2026-07-15", "16:20:00", "16:40:00"),
-        # 2026-07-16: 「すべての日」展開のみ
-        ("2026-07-16", "16:20:00", "16:40:00"),
-    }
-
-
-# ---------------------------------------------------------------------------
-# 4d. 自由記述コメント欄のパース・サニタイズ
+# 4c. 自由記述コメント欄のパース・サニタイズ
 # ---------------------------------------------------------------------------
 
 
