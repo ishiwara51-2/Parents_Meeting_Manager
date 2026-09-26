@@ -76,7 +76,18 @@ def _get_project_or_404(
     project_id: str,
     project_repo: ProjectRepository,
 ) -> Project:
-    """プロジェクトを取得し、存在しない場合は 404 を返す。"""
+    """プロジェクトを取得し、存在しない場合は 404 を返す。
+
+    Args:
+        project_id: 対象プロジェクト ID。
+        project_repo: プロジェクト取得に使う Repository。
+
+    Returns:
+        Project: 取得したプロジェクト。
+
+    Raises:
+        HTTPException 404: プロジェクトが存在しない場合。
+    """
     project = project_repo.get(project_id)
     if project is None:
         raise HTTPException(
@@ -91,7 +102,16 @@ def _update_project_status(
     new_status: ProjectStatus,
     project_repo: ProjectRepository,
 ) -> Project:
-    """プロジェクトの status を更新する。"""
+    """プロジェクトの status を更新する。
+
+    Args:
+        project: 更新対象のプロジェクト（更新前の状態）。
+        new_status: 遷移後の status。
+        project_repo: 永続化に使う Repository。
+
+    Returns:
+        Project: status 更新後のプロジェクト。
+    """
     updated = project.model_copy(update={"status": new_status})
     project_repo.update(updated)
     return updated
@@ -123,8 +143,16 @@ def save_draft(
 
     status 遷移: ``in_progress`` → ``draft_saved``
 
-    - プロジェクト不在 → 404
-    - status が ``draft_saved`` → 409（アンロック後に再保存してください）
+    Args:
+        project_id: 対象プロジェクト ID。
+        body: 保存するスケジューリング結果（ロック対象出席番号を含む）。
+
+    Returns:
+        Draft: 保存されたドラフト（201）。
+
+    Raises:
+        HTTPException 404: プロジェクト不在。
+        HTTPException 409: status が既に ``draft_saved``（アンロック後に再保存してください）。
     """
     project = _get_project_or_404(project_id, project_repo)
 
@@ -176,8 +204,14 @@ def unlock_draft(
 
     status 遷移: ``draft_saved`` → ``in_progress``
 
-    - プロジェクト不在 → 404
-    - ドラフト不在 → 404
+    Args:
+        project_id: 対象プロジェクト ID。
+
+    Returns:
+        Draft: アンロック後のドラフト。
+
+    Raises:
+        HTTPException 404: プロジェクト不在 / ドラフト不在。
     """
     project = _get_project_or_404(project_id, project_repo)
 
@@ -213,8 +247,14 @@ def get_latest_draft(
 ) -> Draft:
     """最新ドラフトを取得する。
 
-    - プロジェクト不在 → 404
-    - ドラフト不在 → 404
+    Args:
+        project_id: 対象プロジェクト ID。
+
+    Returns:
+        Draft: 最新のドラフト。
+
+    Raises:
+        HTTPException 404: プロジェクト不在 / ドラフト不在。
     """
     _get_project_or_404(project_id, project_repo)
 

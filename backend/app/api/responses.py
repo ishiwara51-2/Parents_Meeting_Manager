@@ -79,7 +79,15 @@ class ResponsesStatusResult(BaseModel):
 def _ensure_project_exists(
     project_id: str, project_repo: ProjectRepository
 ) -> None:
-    """対象プロジェクトの存在をガードする（404 を共通化）。"""
+    """対象プロジェクトの存在をガードする（404 を共通化）。
+
+    Args:
+        project_id: 対象プロジェクト ID。
+        project_repo: プロジェクト取得に使う Repository。
+
+    Raises:
+        HTTPException 404: プロジェクトが存在しない場合。
+    """
     if project_repo.get(project_id) is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -99,6 +107,17 @@ def sync_project_responses(
     """指定プロジェクトの Form 回答をポーリング取得して保存する。
 
     レスポンスは ``new_count`` / ``skipped_count`` / ``errors`` のサマリ。
+
+    Args:
+        project_id: 対象プロジェクト ID。
+
+    Returns:
+        SyncResponsesResult: 新規保存件数・スキップ件数・エラー一覧。
+
+    Raises:
+        HTTPException 404: プロジェクト不在 / ``form.json`` 未作成。
+        HTTPException 401: OAuth トークン未保存・リフレッシュ失敗。
+        HTTPException 503: 429/503 リトライを使い切った場合。
     """
     _ensure_project_exists(project_id, project_repo)
 
@@ -133,7 +152,17 @@ def list_project_responses(
     project_repo: ProjectRepository = Depends(get_project_repository),
     response_repo: ResponseRepository = Depends(get_response_repository),
 ) -> list[ResponseModel]:
-    """受領済み回答（出席番号ごとの最新版のみ）を返す。"""
+    """受領済み回答（出席番号ごとの最新版のみ）を返す。
+
+    Args:
+        project_id: 対象プロジェクト ID。
+
+    Returns:
+        list[ResponseModel]: 出席番号ごとの最新回答一覧。
+
+    Raises:
+        HTTPException 404: プロジェクトが存在しない場合。
+    """
     _ensure_project_exists(project_id, project_repo)
     return response_repo.list_latest_per_student(project_id)
 
@@ -147,7 +176,17 @@ def get_project_responses_status(
     project_repo: ProjectRepository = Depends(get_project_repository),
     response_repo: ResponseRepository = Depends(get_response_repository),
 ) -> ResponsesStatusResult:
-    """受領状況サマリ（受領済み出席番号と未受領出席番号）を返す。"""
+    """受領状況サマリ（受領済み出席番号と未受領出席番号）を返す。
+
+    Args:
+        project_id: 対象プロジェクト ID。
+
+    Returns:
+        ResponsesStatusResult: 出席番号昇順の受領済み/未受領一覧。
+
+    Raises:
+        HTTPException 404: プロジェクトが存在しない場合。
+    """
     _ensure_project_exists(project_id, project_repo)
 
     received = sorted(response_repo.get_received_student_numbers(project_id))

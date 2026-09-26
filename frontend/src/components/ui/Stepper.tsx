@@ -1,6 +1,8 @@
+/** 進捗（ウィザード）の各ステップを丸ノード+接続線で横並び表示するコンポーネント。 */
 import type { ReactNode } from 'react'
 import { cn } from './cn'
 
+/** done=完了, active=現在, pending=未着手 */
 export type StepState = 'done' | 'active' | 'pending'
 
 export interface Step {
@@ -18,6 +20,7 @@ interface StepperProps {
   className?: string
 }
 
+// ステップの状態ごとの丸ノード・ラベル・接続線の配色クラス
 const circleVariants: Record<StepState, string> = {
   done: 'bg-success-500 text-white border-success-500',
   active: 'bg-brand-600 text-white border-brand-600 ring-4 ring-brand-100',
@@ -47,6 +50,7 @@ export function Stepper({ steps, className }: StepperProps) {
     >
       {steps.map((step, i) => {
         const isLast = i === steps.length - 1
+        // onClick が指定されたステップだけ <button> にして操作可能にする（それ以外は非対話の <div>）
         const Wrapper = step.onClick ? 'button' : 'div'
         return (
           <li

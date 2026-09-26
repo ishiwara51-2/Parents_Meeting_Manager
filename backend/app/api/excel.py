@@ -36,7 +36,18 @@ def _get_project_or_404(
     project_id: str,
     project_repo: ProjectRepository,
 ) -> Project:
-    """プロジェクトを取得し、存在しない場合は 404 を返す。"""
+    """プロジェクトを取得し、存在しない場合は 404 を返す。
+
+    Args:
+        project_id: 対象プロジェクト ID。
+        project_repo: プロジェクト取得に使う Repository。
+
+    Returns:
+        Project: 取得したプロジェクト。
+
+    Raises:
+        HTTPException 404: プロジェクトが存在しない場合。
+    """
     project = project_repo.get(project_id)
     if project is None:
         raise HTTPException(
@@ -51,8 +62,17 @@ def _build_content_disposition(project_name: str, project_id: str) -> str:
 
     RFC5987 に従い UTF-8 エンコードされた filename* と ASCII フォールバックの
     両方を返す。日本語プロジェクト名に対応する。
+
+    Args:
+        project_name: プロジェクト表示名（日本語含む可能性あり）。
+        project_id: プロジェクト ID（ASCII フォールバック用）。
+
+    Returns:
+        Content-Disposition ヘッダ値文字列。
     """
+    # ASCII フォールバック（日本語ファイル名を解釈できないクライアント向け）
     ascii_filename = f"schedule_{project_id}.xlsx"
+    # RFC5987 エンコーディング（日本語ファイル名対応）
     utf8_filename = f"{project_name}.xlsx"
     encoded = urllib.parse.quote(utf8_filename, safe="")
     return f'attachment; filename="{ascii_filename}"; filename*=UTF-8\'\'{encoded}'
@@ -83,8 +103,14 @@ def download_excel(
 ) -> Response:
     """最新ドラフトから xlsx を生成してダウンロードする。
 
-    - プロジェクト不在 → 404
-    - ドラフト不在 → 404
+    Args:
+        project_id: 対象プロジェクト ID。
+
+    Returns:
+        Response: xlsx バイナリ本体（Content-Disposition 付き）。
+
+    Raises:
+        HTTPException 404: プロジェクト不在 / ドラフト不在。
     """
     # 1. プロジェクト取得
     project = _get_project_or_404(project_id, project_repo)

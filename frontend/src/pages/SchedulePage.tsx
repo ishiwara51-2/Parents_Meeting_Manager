@@ -406,6 +406,10 @@ interface InfeasibleInfoProps {
   unassignedStudents: number[]
 }
 
+/**
+ * 自動配置が制約を完全には満たせなかった場合の情報表示。
+ * 違反した制約の説明文と、配置できなかった生徒の出席番号を列挙する。
+ */
 function InfeasibleInfo({ violatedConstraints, unassignedStudents }: InfeasibleInfoProps) {
   if (violatedConstraints.length === 0 && unassignedStudents.length === 0) {
     return null
@@ -451,6 +455,7 @@ interface DraggableStudentCardProps {
   locked: boolean
 }
 
+/** マトリクスのセル内に表示する、ドラッグ可能な生徒番号カード */
 function DraggableStudentCard({
   id,
   studentNumber,
@@ -511,6 +516,10 @@ interface MatrixCellProps {
   onToggleLock: () => void
 }
 
+/**
+ * マトリクスの1セル。ドロップ先（useDroppable）であり、生徒番号の
+ * 表示・編集開始・ロック切り替えの各操作をまとめて受け持つ。
+ */
 function MatrixCell({
   id,
   studentNumber,

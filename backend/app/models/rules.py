@@ -92,7 +92,12 @@ class AvoidTimeConstraint(BaseModel):
 
 
 class PreferTimeConstraint(BaseModel):
-    """特定時間帯選好制約（ソフト）。"""
+    """特定時間帯選好制約（ソフト）。
+
+    ``AvoidTimeConstraint`` と対になる制約。``prefer_before`` / ``prefer_after``
+    はどちらか一方の指定を想定するが、モデル上は両方 Optional で単純に持つ
+    （組み合わせの妥当性チェックはソルバ側の責務）。
+    """
 
     model_config = ConfigDict(extra="forbid")
 

@@ -30,10 +30,12 @@ class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundarySta
     this.state = { hasError: false, error: null }
   }
 
+  // レンダー中の例外を捕捉して次のレンダーでフォールバック UI を表示するための state 更新
   static getDerivedStateFromError(error: Error): ErrorBoundaryState {
     return { hasError: true, error }
   }
 
+  // ログ出力用の副作用フック（state 更新は getDerivedStateFromError 側が担当）
   componentDidCatch(error: Error, info: React.ErrorInfo): void {
     console.error('ErrorBoundary がエラーを捕捉しました:', error, info)
   }
@@ -57,6 +59,7 @@ class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundarySta
             エラーが発生しました。ページを再読み込みしてください。
           </h1>
           <button
+            // state をリセットするのではなくページ全体を再読み込みし、壊れた状態を確実に破棄する
             onClick={() => window.location.reload()}
             style={{
               padding: '0.5rem 1.5rem',

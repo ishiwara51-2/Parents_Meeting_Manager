@@ -93,6 +93,7 @@ class _SettingsBacked:
     """Settings を共有する mixin。"""
 
     def __init__(self, settings: Settings) -> None:
+        """``Settings`` を保持する（各サブクラスはこの ``settings`` 経由でパスを解決する）。"""
         self._settings = settings
 
     @property
@@ -132,9 +133,11 @@ class FileProjectRepository(_SettingsBacked, ProjectRepository):
         return self.projects_dir / project_id
 
     def _project_json_path(self, project_id: str) -> Path:
+        """``project.json`` の絶対パスを返す（存在保証はしない）。"""
         return self.get_project_dir(project_id) / self.PROJECT_FILE_NAME
 
     def _form_json_path(self, project_id: str) -> Path:
+        """``form.json`` の絶対パスを返す（存在保証はしない）。"""
         return self.get_project_dir(project_id) / self.FORM_FILE_NAME
 
     def list_all(self) -> list[Project]:
@@ -373,11 +376,13 @@ class FileResponseRepository(_SettingsBacked, ResponseRepository):
     # ------------------------------------------------------------------
 
     def _responses_dir(self, project_id: str) -> Path:
+        """``<project_dir>/responses`` の絶対パスを返す（存在保証はしない）。"""
         return (
             self.projects_dir / project_id / self.RESPONSES_DIR_NAME
         )
 
     def _student_dir(self, project_id: str, student_number: int) -> Path:
+        """``<project_dir>/responses/<出席番号>`` の絶対パスを返す（存在保証はしない）。"""
         return self._responses_dir(project_id) / str(student_number)
 
     # ------------------------------------------------------------------
@@ -559,6 +564,7 @@ class FileDraftRepository(_SettingsBacked, DraftRepository):
     # ------------------------------------------------------------------
 
     def _drafts_dir(self, project_id: str) -> Path:
+        """``<project_dir>/drafts`` の絶対パスを返す（存在保証はしない）。"""
         return self.projects_dir / project_id / self.DRAFTS_DIR_NAME
 
     # ------------------------------------------------------------------

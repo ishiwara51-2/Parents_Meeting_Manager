@@ -19,6 +19,8 @@ import GlobalRulesPage from './pages/GlobalRulesPage'
 import SchedulePage from './pages/SchedulePage'
 import SavedPage from './pages/SavedPage'
 
+// retry は 1 回のみ（無限リトライで UI がハングするのを防ぐ）、
+// staleTime は 30 秒（短い操作単位での再フェッチを抑える）
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {

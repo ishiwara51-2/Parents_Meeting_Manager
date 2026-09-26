@@ -23,6 +23,8 @@ import {
 export default function GlobalRulesPage() {
   const queryClient = useQueryClient()
 
+  // サーバから取得した rules をそのまま編集用の state にコピーして扱う
+  // （フォーム編集中は API へ問い合わせず、保存ボタン押下時のみ PUT する）
   const [localRules, setLocalRules] = useState<Rules | null>(null)
   const [saved, setSaved] = useState(false)
   const [apiError, setApiError] = useState('')
@@ -32,6 +34,7 @@ export default function GlobalRulesPage() {
     queryFn: rulesApi.getGlobal,
   })
 
+  // サーバ取得結果が届いたら（初回のみ想定）編集用 state に反映
   useEffect(() => {
     if (rules) {
       setLocalRules(rules)
@@ -56,6 +59,8 @@ export default function GlobalRulesPage() {
     mutation.mutate(localRules)
   }
 
+  // global_constraints のうち1フィールドだけを差し替えるヘルパー。
+  // ジェネリクスによりキーと値の型を対応付け、呼び出し側での型ミスマッチを防ぐ。
   const updateGlobalConstraint = <K extends keyof Rules['global_constraints']>(
     key: K,
     value: Rules['global_constraints'][K],

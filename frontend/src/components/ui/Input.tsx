@@ -1,6 +1,8 @@
+/** フォーム入力の共通スタイルを持つ <input>/<textarea> ラッパー。属性はそのまま透過する。 */
 import type { InputHTMLAttributes, TextareaHTMLAttributes } from 'react'
 import { cn } from './cn'
 
+// Input と Textarea で共有する枠線・フォーカス・disabled 時のスタイル
 const baseField =
   'block w-full rounded-md border bg-surface px-3 py-2 text-sm text-fg ' +
   'border-border-strong placeholder:text-fg-subtle ' +
@@ -22,6 +24,7 @@ export function Input({
   )
 }
 
+/** 複数行入力用。rows の既定値は 4。 */
 export function Textarea({
   className,
   rows = 4,

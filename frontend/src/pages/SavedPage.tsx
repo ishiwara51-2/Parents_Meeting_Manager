@@ -35,6 +35,8 @@ export default function SavedPage() {
     null,
   )
 
+  // PDF を fetch → Blob として取得し、一時的な Object URL を貼った <a> を
+  // クリックすることでブラウザにダウンロードさせる（生成した URL は使用後に revoke）
   async function handleDownloadPdf() {
     if (!projectId) return
     setDownloading(true)
@@ -64,6 +66,8 @@ export default function SavedPage() {
     }
   }
 
+  // Excel 版は PDF と同じ Blob ダウンロード方式。ボタン・状態を分けているのは、
+  // 片方の失敗がもう片方の操作可否に影響しないようにするため
   async function handleDownloadExcel() {
     if (!projectId) return
     setDownloadingExcel(true)
@@ -93,6 +97,8 @@ export default function SavedPage() {
     }
   }
 
+  // ドラフトのロックを解除してから日程案画面へ戻る（保存済みドラフトは
+  // ロックされているため、再編集するにはまずアンロックが必要）
   async function handleReEdit() {
     if (!projectId) return
     setUnlocking(true)

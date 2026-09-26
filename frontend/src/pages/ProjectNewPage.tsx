@@ -39,6 +39,11 @@ interface CandidateDatesCalendarProps {
   disablePast?: boolean
 }
 
+/**
+ * 候補日を選択するための月表示カレンダー。
+ * 表示中の年月は内部 state（viewYear/viewMonth）で保持し、選択済み日付の
+ * 集合（value）とは独立させている。選択トグルは "YYYY-MM-DD" 文字列で行う。
+ */
 function CandidateDatesCalendar({
   value,
   onChange,
@@ -221,6 +226,7 @@ function CandidateDatesCalendar({
   )
 }
 
+/** "HH:MM" → 0時からの分数。不正な形式・範囲外の値は null */
 function parseHHMM(s: string): number | null {
   const m = /^(\d{1,2}):(\d{2})$/.exec(s)
   if (!m) return null
@@ -230,12 +236,18 @@ function parseHHMM(s: string): number | null {
   return h * 60 + min
 }
 
+/** 0時からの分数 → "HH:MM" */
 function formatHHMM(totalMin: number): string {
   const h = Math.floor(totalMin / 60)
   const m = totalMin % 60
   return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`
 }
 
+/**
+ * 開始〜終了の時刻範囲を slotMinutes 刻みで候補時間枠に分割する純粋関数。
+ * 端数（slotMinutes で割り切れない残り時間）は枠として生成しない。
+ * 入力が不正（形式エラー・end <= start・slotMinutes <= 0）なら空配列を返す。
+ */
 function sliceTimeRange(
   start: string,
   end: string,
@@ -322,12 +334,20 @@ function expandStudentNumberRange(
   return { numbers, error: null }
 }
 
+/** バリデーション対象のフィールド識別子（fieldErrors のキーとして使用） */
 type FieldKey =
   | 'displayName'
   | 'candidateDates'
   | 'timeSlots'
   | 'studentNumbers'
 
+/**
+ * プロジェクト新規作成画面。
+ * ユーザーがワークフローの最初に入力する画面で、ここで確定した内容
+ * （候補日・候補時間枠・出席番号・ルール）を元に POST /api/projects で
+ * プロジェクトを作成し、続けてルールも保存してプロジェクト詳細へ遷移する。
+ * ルールの初期値はグローバルルール設定（rulesApi.getGlobal）を複製する。
+ */
 export default function ProjectNewPage() {
   const navigate = useNavigate()
 
@@ -351,6 +371,8 @@ export default function ProjectNewPage() {
     queryFn: rulesApi.getGlobal,
   })
 
+  // グローバルルールが届いたら初回のみ localRules へコピーする
+  // （localRules === null は「まだユーザー編集が入っていない」ことの目印）
   useEffect(() => {
     if (globalRules && localRules === null) {
       setLocalRules(globalRules)
@@ -379,6 +401,8 @@ export default function ProjectNewPage() {
   const rangeResult = expandStudentNumberRange(rangeStart, rangeEnd)
   const slicePreview = sliceTimeRange(startTime, endTime, slotMinutes)
 
+  // フォーム送信: クライアント側バリデーション → プロジェクト作成 → ルール保存
+  // → プロジェクト詳細へ遷移、の順に行う。
   const handleSubmit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault()
     setValidationError('')

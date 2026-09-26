@@ -1,9 +1,11 @@
+/** 枠線・角丸・影を持つ共通コンテナ。CardHeader と組み合わせて使う想定。 */
 import type { HTMLAttributes, ReactNode } from 'react'
 import { cn } from './cn'
 
 interface CardProps extends HTMLAttributes<HTMLDivElement> {
   children: ReactNode
   padding?: 'none' | 'sm' | 'md' | 'lg'
+  /** クリック可能なカード（一覧項目など）にホバー時の視覚フィードバックを付与する */
   interactive?: boolean
 }
 
@@ -43,6 +45,7 @@ interface CardHeaderProps extends Omit<HTMLAttributes<HTMLDivElement>, 'title'> 
   actions?: ReactNode
 }
 
+/** Card 上部に置く見出し + 補足説明 + アクションボタン群のレイアウト。 */
 export function CardHeader({
   title,
   description,

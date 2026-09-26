@@ -1,6 +1,8 @@
+/** 小さなラベル/ステータス表示用の丸みを帯びたバッジ。 */
 import type { HTMLAttributes, ReactNode } from 'react'
 import { cn } from './cn'
 
+/** バッジの色調（意味づけ: brand=強調, success/warning/danger=状態, neutral=既定） */
 export type BadgeTone =
   | 'neutral'
   | 'brand'
@@ -13,6 +15,7 @@ interface BadgeProps extends HTMLAttributes<HTMLSpanElement> {
   children: ReactNode
 }
 
+// tone ごとの配色クラス
 const tones: Record<BadgeTone, string> = {
   neutral: 'bg-surface-sunken text-fg-muted border-border',
   brand: 'bg-brand-50 text-brand-700 border-brand-200',

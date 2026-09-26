@@ -120,6 +120,12 @@ def create_project(
     ``rules.json`` は Phase 3.1 以降 ``RuleRepository.copy_global_to_project()``
     で生成する（依存方向：API → RuleRepository。Phase 2.1 の暫定実装
     ``_initialize_project_rules`` はここで置き換え済み）。
+
+    Args:
+        payload: プロジェクト作成リクエスト（``project_id`` / ``created_at`` は含まない）。
+
+    Returns:
+        Project: 作成されたプロジェクト（201）。
     """
     project = Project(
         project_id=_generate_project_id(),
@@ -141,7 +147,11 @@ def create_project(
 def list_projects(
     repo: ProjectRepository = Depends(get_project_repository),
 ) -> list[Project]:
-    """全プロジェクトを ``created_at`` 降順で返す。"""
+    """全プロジェクトを ``created_at`` 降順で返す。
+
+    Returns:
+        list[Project]: 全プロジェクト一覧。
+    """
     return repo.list_all()
 
 
@@ -150,7 +160,17 @@ def get_project(
     project_id: str,
     repo: ProjectRepository = Depends(get_project_repository),
 ) -> Project:
-    """指定 ID のプロジェクト詳細を返す。存在しなければ 404。"""
+    """指定 ID のプロジェクト詳細を返す。存在しなければ 404。
+
+    Args:
+        project_id: 対象プロジェクト ID。
+
+    Returns:
+        Project: 対象プロジェクト。
+
+    Raises:
+        HTTPException 404: プロジェクトが存在しない場合。
+    """
     project = repo.get(project_id)
     if project is None:
         raise HTTPException(
@@ -170,6 +190,16 @@ def update_project(
 
     ``project_id`` / ``created_at`` は不変（URL 上の ID とディスク既存値を使う）。
     対象が存在しなければ 404。
+
+    Args:
+        project_id: 対象プロジェクト ID。
+        payload: 更新後の内容（``project_id`` / ``created_at`` は無視される）。
+
+    Returns:
+        Project: 更新後のプロジェクト。
+
+    Raises:
+        HTTPException 404: プロジェクトが存在しない場合。
     """
     existing = repo.get(project_id)
     if existing is None:
@@ -203,6 +233,15 @@ def delete_project(
     """プロジェクトを削除する。ディレクトリ配下も再帰削除する。
 
     存在しなければ 404。
+
+    Args:
+        project_id: 対象プロジェクト ID。
+
+    Returns:
+        Response: 204 No Content。
+
+    Raises:
+        HTTPException 404: プロジェクトが存在しない場合。
     """
     if repo.get(project_id) is None:
         raise HTTPException(

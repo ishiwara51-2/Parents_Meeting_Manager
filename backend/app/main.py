@@ -100,6 +100,10 @@ def create_app() -> FastAPI:
         SessionMiddleware,
         secret_key=_resolve_session_secret(),
         # http://localhost 運用のため secure=False（既定）。https_only も無効。
+        # same_site="lax"（"strict" ではない）: Google の OAuth コールバックは
+        # ブラウザのトップレベル遷移（外部サイトからのリダイレクト）でセッション
+        # cookie を送る必要があるため、"strict" だと state 検証用セッションが
+        # 届かず失敗する。
         same_site="lax",
     )
 

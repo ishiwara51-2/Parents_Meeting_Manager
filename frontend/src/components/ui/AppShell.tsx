@@ -88,6 +88,7 @@ function LogoMark({ className }: { className?: string }) {
   )
 }
 
+/** ページ上部のパンくずリスト。先頭に "ホーム" を自動付与し、最終要素は現在ページとして強調する。 */
 function Breadcrumbs({ items }: { items: Breadcrumb[] }) {
   // 先頭に "ホーム" を自動付与（先頭がホームでなければ）
   const fullItems: Breadcrumb[] =
@@ -172,6 +173,10 @@ function AuthBadge() {
   )
 }
 
+/**
+ * 全画面共通のレイアウト（ヘッダー + パンくず/タイトル/アクション + 本文）。
+ * 各ページはこのコンポーネントで children をラップして使う。
+ */
 export function AppShell({
   headerRight,
   breadcrumbs,

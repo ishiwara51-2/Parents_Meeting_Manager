@@ -17,6 +17,7 @@ interface FormFieldProps {
   className?: string
 }
 
+/** label/hint/error を統一レイアウトで input と紐づけるフォーム項目ラッパー。 */
 export function FormField({
   label,
   htmlFor,

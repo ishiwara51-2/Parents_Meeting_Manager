@@ -18,6 +18,9 @@ from functools import lru_cache
 from pathlib import Path
 
 
+# google_auth.REDIRECT_URI は "http://localhost:8000/..." にハードコードされているため、
+# MEETING_SCHEDULER_PORT で起動ポートを変更しても OAuth コールバック URI は追従しない
+# （GCP コンソール側の登録 URI も合わせて変更する必要がある）。
 DEFAULT_PORT = 8000
 ENV_DATA_ROOT = "MEETING_SCHEDULER_DATA_ROOT"
 ENV_PORT = "MEETING_SCHEDULER_PORT"
@@ -66,6 +69,7 @@ class Settings:
     """アプリ設定。起動時に1度だけ生成される想定。"""
 
     def __init__(self) -> None:
+        """環境変数からアプリ用データルート・ポートを解決してフィールドに保持する。"""
         self.app_data_root: Path = _resolve_app_data_root()
         self.config_dir: Path = self.app_data_root / "config"
         self.projects_dir: Path = self.app_data_root / "projects"

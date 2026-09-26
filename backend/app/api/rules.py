@@ -43,6 +43,9 @@ def get_global_rules(
 
     ``global_rules.json`` が存在しない場合（初回アクセス）は既定値で初期化してから返す。
     プロジェクト作成時のコピー元になるルール（requirements.md §4.5.1）。
+
+    Returns:
+        Rules: グローバルルール一式。
     """
     return rule_repo.get_global_rules()
 
@@ -56,6 +59,12 @@ def put_global_rules(
 
     バリデーション（重み 0〜10、有効な制約タイプ）は ``Rules`` モデル（Pydantic）が行う。
     不正な値は FastAPI が 422 を自動返答する。
+
+    Args:
+        rules: 更新後のグローバルルール一式。
+
+    Returns:
+        Rules: 保存後のグローバルルール（そのまま ``rules`` を返す）。
     """
     return rule_repo.set_global_rules(rules)
 
@@ -76,6 +85,15 @@ def get_project_rules(
     プロジェクトが存在しない場合は 404。
     ``rules.json`` が存在しない場合も 404（プロジェクト作成時に必ず生成されるため
     通常は発生しないが、ファイルが手動削除された等の異常系の保険として 404 を返す）。
+
+    Args:
+        project_id: 対象プロジェクト ID。
+
+    Returns:
+        Rules: 対象プロジェクトのルール一式。
+
+    Raises:
+        HTTPException 404: プロジェクト不在 / ``rules.json`` 不在。
     """
     if project_repo.get(project_id) is None:
         raise HTTPException(
@@ -103,6 +121,16 @@ def put_project_rules(
     プロジェクトが存在しない場合は 404。
     バリデーション（重み範囲・制約タイプ）は Pydantic が 422 で自動処理する。
     グローバルルールには影響しない（独立した永続化先）。
+
+    Args:
+        project_id: 対象プロジェクト ID。
+        rules: 更新後のルール一式。
+
+    Returns:
+        Rules: 保存後のプロジェクトルール。
+
+    Raises:
+        HTTPException 404: プロジェクト不在（保存直前に消えた場合を含む）。
     """
     if project_repo.get(project_id) is None:
         raise HTTPException(

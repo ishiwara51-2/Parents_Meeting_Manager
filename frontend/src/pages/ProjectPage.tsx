@@ -78,6 +78,7 @@ const POLLING_INTERVAL_MS = 60_000
  */
 const formIntentKey = (projectId: string) => `pendingFormCreate:${projectId}`
 
+/** ステータス日本語表示 */
 const STATUS_LABEL: Record<string, string> = {
   in_progress: '進行中',
   draft_saved: 'ドラフト保存済',
@@ -126,6 +127,8 @@ export default function ProjectPage() {
       setFormError('')
     },
     onError: (err: Error & { status?: number }) => {
+      // 未認証 (401): OAuth 認証へ誘導する。ただし既に自動再試行（OAuth 復帰後）
+      // で失敗した場合はループを避けてエラー表示に留める。
       if (err.status === 401) {
         if (autoFormTriggeredRef.current) {
           if (projectId) sessionStorage.removeItem(formIntentKey(projectId))
@@ -188,9 +191,14 @@ export default function ProjectPage() {
     }
   }
 
+  // 作成直後は React Query のキャッシュ更新を待たず、mutation の結果を
+  // 即座に表示するためのフォールバック
   const currentFormInfo: FormInfo | undefined =
     formInfo ?? createFormMutation.data
 
+  // OAuth リダイレクトから戻ってきた際、pendingFormCreate フラグが立っていれば
+  // Form 作成を自動的に再実行する（ユーザーがボタンを押し直す必要をなくす）。
+  // autoFormTriggeredRef で多重発火を防ぎ、一度試行したら成否に関わらず終了する。
   useEffect(() => {
     if (!projectId) return
     if (autoFormTriggeredRef.current) return

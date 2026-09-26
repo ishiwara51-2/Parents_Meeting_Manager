@@ -35,7 +35,18 @@ def _get_project_or_404(
     project_id: str,
     project_repo: ProjectRepository,
 ) -> Project:
-    """プロジェクトを取得し、存在しない場合は 404 を返す。"""
+    """プロジェクトを取得し、存在しない場合は 404 を返す。
+
+    Args:
+        project_id: 対象プロジェクト ID。
+        project_repo: プロジェクト取得に使う Repository。
+
+    Returns:
+        Project: 取得したプロジェクト。
+
+    Raises:
+        HTTPException 404: プロジェクトが存在しない場合。
+    """
     project = project_repo.get(project_id)
     if project is None:
         raise HTTPException(
@@ -90,8 +101,14 @@ def download_pdf(
 ) -> Response:
     """最新ドラフトから PDF を生成してダウンロードする。
 
-    - プロジェクト不在 → 404
-    - ドラフト不在 → 404
+    Args:
+        project_id: 対象プロジェクト ID。
+
+    Returns:
+        Response: PDF バイナリ本体（Content-Disposition 付き）。
+
+    Raises:
+        HTTPException 404: プロジェクト不在 / ドラフト不在。
     """
     # 1. プロジェクト取得
     project = _get_project_or_404(project_id, project_repo)

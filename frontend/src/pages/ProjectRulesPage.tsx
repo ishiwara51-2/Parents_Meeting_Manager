@@ -27,6 +27,8 @@ export default function ProjectRulesPage() {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
 
+  // サーバから取得したプロジェクト固有ルール（作成時にグローバルルールから
+  // 複製されたもの）をそのまま編集用 state にコピーして扱う
   const [localRules, setLocalRules] = useState<Rules | null>(null)
   const [saved, setSaved] = useState(false)
   const [apiError, setApiError] = useState('')
@@ -36,6 +38,7 @@ export default function ProjectRulesPage() {
     queryFn: () => rulesApi.getProject(projectId!),
   })
 
+  // サーバ取得結果が届いたら（初回のみ想定）編集用 state に反映
   useEffect(() => {
     if (rules) {
       setLocalRules(rules)
@@ -60,6 +63,8 @@ export default function ProjectRulesPage() {
     mutation.mutate(localRules)
   }
 
+  // global_constraints のうち1フィールドだけを差し替えるヘルパー。
+  // ジェネリクスによりキーと値の型を対応付け、呼び出し側での型ミスマッチを防ぐ。
   const updateGlobalConstraint = <K extends keyof Rules['global_constraints']>(
     key: K,
     value: Rules['global_constraints'][K],

@@ -1,3 +1,4 @@
+// UI コンポーネント群の再エクスポート（他モジュールからは './components/ui' としてまとめて import する）
 export { Button } from './Button'
 export type { ButtonVariant, ButtonSize } from './Button'
 export { Card, CardHeader } from './Card'

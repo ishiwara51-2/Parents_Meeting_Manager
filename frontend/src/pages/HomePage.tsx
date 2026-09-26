@@ -29,6 +29,7 @@ const STATUS_LABEL: Record<ProjectStatus, string> = {
   finalized: '確定済',
 }
 
+/** ステータスに応じた Badge の色調 */
 const STATUS_TONE: Record<ProjectStatus, BadgeTone> = {
   in_progress: 'brand',
   draft_saved: 'warning',
@@ -44,6 +45,8 @@ export default function HomePage() {
     queryFn: projectsApi.list,
   })
 
+  // 削除確認ダイアログの対象プロジェクト。null なら非表示。
+  // 一覧カードの「削除」ボタンから直接 delete せず、必ず確認を挟む。
   const [confirmTarget, setConfirmTarget] = useState<Project | null>(null)
   const [deleteError, setDeleteError] = useState<string | null>(null)
 
@@ -139,6 +142,8 @@ export default function HomePage() {
                     variant="ghost"
                     size="sm"
                     onClick={(e) => {
+                      // カード全体に遷移用の onClick があるため、削除ボタン押下が
+                      // プロジェクト詳細への遷移を発火させないよう伝播を止める
                       e.stopPropagation()
                       setDeleteError(null)
                       setConfirmTarget(project)
@@ -156,7 +161,7 @@ export default function HomePage() {
         )}
       </section>
 
-      {/* 削除確認ダイアログ */}
+      {/* 削除確認ダイアログ：背景クリックで閉じる（削除処理中は誤操作防止のため無効） */}
       {confirmTarget && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4"
@@ -171,6 +176,7 @@ export default function HomePage() {
             role="dialog"
             aria-modal="true"
             data-testid="delete-confirm-dialog"
+            // ダイアログ本体のクリックが背景の onClick（閉じる処理）に伝播しないように
             onClick={(e) => e.stopPropagation()}
             className="bg-surface rounded-lg shadow-popover max-w-md w-full p-6 border border-border"
           >

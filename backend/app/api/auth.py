@@ -40,6 +40,12 @@ def _safe_next(next_url: str | None) -> str:
     - 絶対URL：``http(s)://localhost`` または ``http(s)://127.0.0.1`` のみ許可
       （dev モードで backend(8000)→frontend(5173) へ戻すため必要）
     - それ以外は ``/`` にフォールバック
+
+    Args:
+        next_url: クエリパラメータで受け取った戻り先 URL（任意）。
+
+    Returns:
+        検証済みの遷移先パス／URL。不正な場合は ``"/"``。
     """
     if not next_url:
         return "/"
@@ -64,6 +70,13 @@ def start_google_auth(
     state / PKCE verifier を生成しセッションに保存した上で、Google の
     認可エンドポイントへリダイレクト（HTTP 307）する。
     ``next`` は認証完了後の戻り先（相対パスまたは localhost 系絶対URL）。
+
+    Args:
+        request: セッションへの state / next / PKCE verifier 保存に使う。
+        next: 認証完了後の戻り先 URL（任意、省略時は ``/``）。
+
+    Returns:
+        RedirectResponse: Google 認可エンドポイントへの 307 リダイレクト。
     """
     url, state, code_verifier = google_auth.build_authorization_url()
     request.session[SESSION_STATE_KEY] = state
@@ -88,6 +101,19 @@ def google_auth_callback(
     3. ``code`` を Google に渡してトークン交換
     4. 取得したトークンを ``%APPDATA%\\meeting-scheduler\\config\\oauth_token.json`` に保存
     5. セッションに保存しておいた ``next`` URL へリダイレクト（既定 ``/``）
+
+    Args:
+        request: セッションから state / next / PKCE verifier を取り出すために使う。
+        state: Google から返されたクエリパラメータ（CSRF 検証用）。
+        code: Google から返された認可コード。
+        error: Google 側でエラーが発生した場合のエラーコード。
+
+    Returns:
+        RedirectResponse: 303 で ``next`` URL へリダイレクト。
+
+    Raises:
+        HTTPException 400: state 未保存 / state 不一致 / OAuth エラー応答 / code 欠落。
+        HTTPException 500: code とトークンの交換に失敗した場合。
     """
     saved_state = request.session.get(SESSION_STATE_KEY)
     # state がセッションに無い、もしくはクエリ state が空 → 400
@@ -137,7 +163,11 @@ def google_auth_callback(
 
 @router.get("/status")
 def auth_status() -> dict[str, bool | str | None]:
-    """現在の認証状態と、判明していれば email を返す。"""
+    """現在の認証状態と、判明していれば email を返す。
+
+    Returns:
+        ``{"authenticated": bool, "email": str | None}``。未認証時 email は None。
+    """
     authenticated = google_auth.is_authenticated()
     email = google_auth.get_authenticated_email() if authenticated else None
     return {"authenticated": authenticated, "email": email}
@@ -149,6 +179,9 @@ def logout() -> dict[str, bool | str | None]:
 
     削除後の認証状態（常に未認証）をそのまま返す。フロント側は
     レスポンスをそのまま ``['auth-status']`` クエリのキャッシュに反映できる。
+
+    Returns:
+        ``{"authenticated": False, "email": None}`` 固定。
     """
     google_auth.logout()
     return {"authenticated": False, "email": None}

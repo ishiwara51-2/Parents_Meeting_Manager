@@ -1,3 +1,4 @@
+/** アプリのエントリーポイント。ErrorBoundary で App 全体を包み、予期しない例外時もフォールバック UI を出す。 */
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import './index.css'

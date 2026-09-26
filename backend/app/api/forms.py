@@ -37,6 +37,13 @@ def _get_file_project_repository(
     抽象 ``ProjectRepository`` ではなく ``FileProjectRepository`` 具象に依存する。
     将来 DB 実装に切り替える場合は ``FormRepository`` 抽象を別途切り出す前提
     （Phase 1.2 の Repository 抽象方針に沿う暫定実装）。
+
+    Returns:
+        FileProjectRepository: DI で注入された Repository（型が正しい場合）。
+
+    Raises:
+        HTTPException 500: DI override で ``FileProjectRepository`` 以外が
+            差し込まれた場合（設定ミスの防御であり通常は発生しない）。
     """
     if not isinstance(repo, FileProjectRepository):
         # DI override で別実装が差し込まれた場合の防御
@@ -59,10 +66,16 @@ def create_project_form(
 ) -> FormInfo:
     """プロジェクトから Google Form を生成し ``form.json`` に保存する。
 
-    - 404: プロジェクト未存在
-    - 409: 既に ``form.json`` が存在（二重作成防止）
-    - 401: OAuth トークン未保存・リフレッシュ失敗
-    - 201: 作成成功、FormInfo を返す
+    Args:
+        project_id: 対象プロジェクト ID。
+
+    Returns:
+        FormInfo: 生成した Form のメタ情報（201）。
+
+    Raises:
+        HTTPException 404: プロジェクト未存在。
+        HTTPException 409: 既に ``form.json`` が存在（二重作成防止）。
+        HTTPException 401: OAuth トークン未保存・リフレッシュ失敗。
     """
     project = repo.get(project_id)
     if project is None:
@@ -101,8 +114,14 @@ def get_project_form(
 ) -> FormInfo:
     """生成済み ``form.json`` を返す。
 
-    - 404: プロジェクト未存在 / ``form.json`` 未生成
-    - 200: ``FormInfo`` を返す
+    Args:
+        project_id: 対象プロジェクト ID。
+
+    Returns:
+        FormInfo: 生成済みの Form メタ情報（200）。
+
+    Raises:
+        HTTPException 404: プロジェクト未存在 / ``form.json`` 未生成。
     """
     if repo.get(project_id) is None:
         raise HTTPException(
