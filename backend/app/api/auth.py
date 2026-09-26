@@ -5,6 +5,7 @@ requirements.md §2.1 / §6 に対応する以下3エンドポイントを提供
 - ``GET /api/auth/google`` 認証開始（``state`` 生成 → セッション保存 → リダイレクト）
 - ``GET /api/auth/google/callback`` コールバック処理（``state`` 検証 → トークン取得）
 - ``GET /api/auth/status`` 認証状態確認（``{"authenticated": bool, "email": str | None}``）
+- ``POST /api/auth/logout`` ログアウト（保存済みトークン・email をローカルから削除）
 
 **CSRF 対策（requirements.md §2.1）**：state パラメータをサーバ側セッション
 （``starlette.middleware.sessions.SessionMiddleware``）に保存し、コールバック
@@ -140,6 +141,17 @@ def auth_status() -> dict[str, bool | str | None]:
     authenticated = google_auth.is_authenticated()
     email = google_auth.get_authenticated_email() if authenticated else None
     return {"authenticated": authenticated, "email": email}
+
+
+@router.post("/logout")
+def logout() -> dict[str, bool | str | None]:
+    """ログアウトする（保存済みトークン・email をローカルから削除）。
+
+    削除後の認証状態（常に未認証）をそのまま返す。フロント側は
+    レスポンスをそのまま ``['auth-status']`` クエリのキャッシュに反映できる。
+    """
+    google_auth.logout()
+    return {"authenticated": False, "email": None}
 
 
 __all__ = ["router"]

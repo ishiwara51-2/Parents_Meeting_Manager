@@ -338,6 +338,68 @@ def test_auth_status_returns_email_when_authenticated(
     }
 
 
+# ---------- 8. ログアウト ----------
+
+def test_logout_deletes_stored_credentials_and_email(
+    isolated_data_root: Path,
+) -> None:
+    """POST /api/auth/logout で oauth_token.json / oauth_email.json が削除される。"""
+    settings = get_settings()
+    settings.ensure_directories()
+    token_path = settings.config_dir / "oauth_token.json"
+    email_path = settings.config_dir / "oauth_email.json"
+    token_path.write_text(
+        _make_credentials_json(token="stored-access-token", expired=False),
+        encoding="utf-8",
+    )
+    email_path.write_text(json.dumps({"email": "teacher@example.com"}), encoding="utf-8")
+
+    app = create_app()
+    with TestClient(app) as client:
+        response = client.post("/api/auth/logout")
+
+    assert response.status_code == 200
+    assert response.json() == {"authenticated": False, "email": None}
+    assert not token_path.exists()
+    assert not email_path.exists()
+
+
+def test_logout_is_idempotent_when_not_authenticated(
+    isolated_data_root: Path,
+) -> None:
+    """未認証状態で /api/auth/logout を呼んでもエラーにならない。"""
+    app = create_app()
+    with TestClient(app) as client:
+        response = client.post("/api/auth/logout")
+
+    assert response.status_code == 200
+    assert response.json() == {"authenticated": False, "email": None}
+
+
+def test_auth_status_reflects_logout(isolated_data_root: Path) -> None:
+    """ログアウト後に /api/auth/status を叩くと未認証を返す。"""
+    from app.services import google_auth
+
+    settings = get_settings()
+    settings.ensure_directories()
+    (settings.config_dir / "oauth_token.json").write_text(
+        _make_credentials_json(token="stored-access-token", expired=False),
+        encoding="utf-8",
+    )
+    (settings.config_dir / "oauth_email.json").write_text(
+        json.dumps({"email": "teacher@example.com"}), encoding="utf-8"
+    )
+
+    app = create_app()
+    with TestClient(app) as client:
+        assert client.get("/api/auth/status").json()["authenticated"] is True
+        client.post("/api/auth/logout")
+        status_response = client.get("/api/auth/status")
+
+    assert status_response.json() == {"authenticated": False, "email": None}
+    assert google_auth.is_authenticated() is False
+
+
 # ---------- 6. state 不一致でコールバックが 400 ----------
 
 def test_callback_returns_400_on_state_mismatch(fake_oauth_client: Path) -> None:

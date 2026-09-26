@@ -322,6 +322,16 @@ def is_authenticated() -> bool:
     return bool(creds.refresh_token)
 
 
+def logout() -> None:
+    """ログアウト処理。保存済みの認証情報（トークン・email）を削除する。
+
+    Google 側のトークン失効 API は呼ばない（ローカル専用プロトタイプのため、
+    ローカルに保存された認証情報を消すだけで次回アクセス時に再ログイン
+    （Google 側の再同意）を促す方針で十分とする）。
+    """
+    _clear_stored_credentials()
+
+
 __all__ = [
     "SCOPES",
     "REDIRECT_URI",
@@ -331,4 +341,5 @@ __all__ = [
     "get_valid_credentials",
     "is_authenticated",
     "get_authenticated_email",
+    "logout",
 ]

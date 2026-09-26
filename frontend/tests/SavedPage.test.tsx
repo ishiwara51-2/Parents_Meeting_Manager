@@ -21,6 +21,7 @@ vi.mock('../src/api', () => ({
   authApi: {
     status: vi.fn(),
     startGoogle: vi.fn(),
+    logout: vi.fn(),
   },
   draftsApi: {
     unlock: vi.fn(),

@@ -1,7 +1,8 @@
 import type { ReactNode } from 'react'
 import { Link } from 'react-router-dom'
-import { useQuery } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { authApi } from '../../api'
+import type { AuthStatus } from '../../api/types'
 import { cn } from './cn'
 import { Button } from './Button'
 
@@ -131,9 +132,16 @@ function Breadcrumbs({ items }: { items: Breadcrumb[] }) {
 
 /** ヘッダー右端の認証状態バッジ。全画面共通で表示する（requirements.md §4.2）。 */
 function AuthBadge() {
+  const queryClient = useQueryClient()
   const { data: authStatus, isLoading } = useQuery({
     queryKey: ['auth-status'],
     queryFn: authApi.status,
+  })
+  const logoutMutation = useMutation({
+    mutationFn: authApi.logout,
+    onSuccess: (result: AuthStatus) => {
+      queryClient.setQueryData(['auth-status'], result)
+    },
   })
 
   if (isLoading) {
@@ -141,9 +149,19 @@ function AuthBadge() {
   }
   if (authStatus?.authenticated) {
     return (
-      <span className="text-fg-muted">
-        <span className="text-fg-subtle">ログイン済み: </span>
-        <span className="font-medium text-fg">{authStatus.email}</span>
+      <span className="flex items-center gap-2 text-fg-muted">
+        <span>
+          <span className="text-fg-subtle">ログイン済み: </span>
+          <span className="font-medium text-fg">{authStatus.email}</span>
+        </span>
+        <Button
+          variant="secondary"
+          size="sm"
+          onClick={() => logoutMutation.mutate()}
+          disabled={logoutMutation.isPending}
+        >
+          ログアウト
+        </Button>
       </span>
     )
   }

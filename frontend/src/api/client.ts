@@ -79,6 +79,7 @@ export const healthApi = {
 export const authApi = {
   status: () => get<AuthStatus>('/api/auth/status'),
   startGoogle: () => { window.location.href = '/api/auth/google' },
+  logout: () => post<AuthStatus>('/api/auth/logout'),
 }
 
 /** プロジェクト管理 */

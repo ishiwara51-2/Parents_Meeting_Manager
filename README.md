@@ -143,7 +143,8 @@ Google Forms / Drive API を利用するには、GCP プロジェクトの設定
 5. `http://localhost:8000/api/auth/status` で `{"authenticated":true,"email":"..."}` が返れば成功
 
 > 既に一度ログイン済みの場合でも、`openid`/`userinfo.email` スコープ追加後は
-> 一度ログアウト（`oauth_token.json` / `oauth_email.json` を削除）して再ログインしないと
+> 一度ヘッダーの「ログアウト」ボタン（`POST /api/auth/logout`、
+> `oauth_token.json` / `oauth_email.json` を削除）を押して再ログインしないと
 > メールアドレスが表示されません（スコープの再同意が必要なため）。
 
 ---
@@ -307,6 +308,7 @@ project-root\
 | GET | `/api/health` | ヘルスチェック |
 | GET | `/api/auth/google` | OAuth 認証開始 |
 | GET | `/api/auth/status` | 認証状態確認 |
+| POST | `/api/auth/logout` | ログアウト（保存済みトークン削除） |
 | GET/POST | `/api/projects` | プロジェクト一覧・作成 |
 | POST | `/api/projects/{id}/form` | Google Form 作成 |
 | POST | `/api/projects/{id}/responses/sync` | 回答ポーリング実行 |

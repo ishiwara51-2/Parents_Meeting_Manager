@@ -4,6 +4,7 @@
  */
 
 import { render, screen, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { MemoryRouter } from 'react-router-dom'
 import type { ReactElement } from 'react'
@@ -14,6 +15,7 @@ vi.mock('../src/api', () => ({
   authApi: {
     status: vi.fn(),
     startGoogle: vi.fn(),
+    logout: vi.fn(),
   },
 }))
 
@@ -66,6 +68,57 @@ describe('AppShell', () => {
       <AppShell title="任意の画面タイトル">本文</AppShell>
     )
 
+    await waitFor(() => {
+      expect(
+        screen.getByRole('button', { name: 'Googleでログイン' })
+      ).toBeInTheDocument()
+    })
+  })
+
+  it('認証済み時はヘッダーに「ログアウト」ボタンを表示する', async () => {
+    vi.mocked(api.authApi.status).mockResolvedValue({
+      authenticated: true,
+      email: 'teacher@example.com',
+    })
+
+    renderWithProviders(<AppShell>本文</AppShell>)
+
+    await waitFor(() => {
+      expect(
+        screen.getByRole('button', { name: 'ログアウト' })
+      ).toBeInTheDocument()
+    })
+  })
+
+  it('未認証時は「ログアウト」ボタンを表示しない', async () => {
+    vi.mocked(api.authApi.status).mockResolvedValue({ authenticated: false })
+
+    renderWithProviders(<AppShell>本文</AppShell>)
+
+    await waitFor(() => {
+      expect(
+        screen.getByRole('button', { name: 'Googleでログイン' })
+      ).toBeInTheDocument()
+    })
+    expect(
+      screen.queryByRole('button', { name: 'ログアウト' })
+    ).not.toBeInTheDocument()
+  })
+
+  it('「ログアウト」ボタンを押すと authApi.logout を呼び、未認証表示に切り替わる', async () => {
+    const user = userEvent.setup()
+    vi.mocked(api.authApi.status).mockResolvedValue({
+      authenticated: true,
+      email: 'teacher@example.com',
+    })
+    vi.mocked(api.authApi.logout).mockResolvedValue({ authenticated: false })
+
+    renderWithProviders(<AppShell>本文</AppShell>)
+
+    const logoutButton = await screen.findByRole('button', { name: 'ログアウト' })
+    await user.click(logoutButton)
+
+    expect(api.authApi.logout).toHaveBeenCalledTimes(1)
     await waitFor(() => {
       expect(
         screen.getByRole('button', { name: 'Googleでログイン' })
