@@ -35,6 +35,7 @@ unassigned_students / violated_constraints）。Phase 3.4 のドラフト保存�
 from __future__ import annotations
 
 import logging
+import secrets
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -188,9 +189,17 @@ def post_schedule(
         if body is not None and body.solver_time_limit_seconds is not None
         else DEFAULT_API_SOLVER_TIME_LIMIT_SECONDS
     )
+    # 「日程案の再生成」で毎回同じ案が返らないよう、リクエストごとに新しい乱数シード
+    # を渡す。配置数最大化・ソフト制約最小化の優先順位は崩さず、それらが同点の
+    # 解が複数ある場合にのみ、どれを選ぶかがシードによって変わる（scheduler.solve
+    # の random_seed 引数を参照）。
     try:
         result = solve(
-            project, responses, rules, time_limit_seconds=time_limit
+            project,
+            responses,
+            rules,
+            time_limit_seconds=time_limit,
+            random_seed=secrets.randbelow(2**31),
         )
     except Exception as exc:  # noqa: BLE001 - CP-SAT 想定外エラー全般を 503 に
         logger.exception(

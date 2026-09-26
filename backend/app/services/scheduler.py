@@ -95,8 +95,9 @@ Phase 3.2 でハード制約のみ実装し、Phase 3.3a で以下の 5 種の�
 from __future__ import annotations
 
 import logging
+import random
 from datetime import date, time
-from typing import Iterable
+from typing import Iterable, Optional
 
 from ortools.sat.python import cp_model
 from pydantic import BaseModel, ConfigDict, Field
@@ -124,6 +125,12 @@ DEFAULT_SOLVER_TIME_LIMIT_SECONDS = 60.0
 #: Rules.GlobalConstraints が weight フィールドを持たないため、scheduler 側で固定値を使う。
 #: 値 5 は per-student ソフト制約の中央値で、ソフト制約間で極端な優劣を付けない設計意図。
 DEFAULT_GLOBAL_SOFT_WEIGHT = 5
+
+#: `random_seed` 指定時のタイブレーク用ランダム係数の範囲（各 x[i, s] に 1 個割り当て）。
+#: [0, RANDOM_TIEBREAK_RANGE) の一様乱数。値そのものに意味は無く、後述の通り
+#: 「配置数最大化」「ソフト制約最小化」の優先順位を一切崩さないためのスケールと
+#: セットで機能する。
+RANDOM_TIEBREAK_RANGE = 1000
 
 
 class SchedulingResult(BaseModel):
@@ -589,6 +596,7 @@ def solve(
     rules: Rules,
     *,
     time_limit_seconds: float = DEFAULT_SOLVER_TIME_LIMIT_SECONDS,
+    random_seed: Optional[int] = None,
 ) -> SchedulingResult:
     """ハード制約 + ソフト制約を考慮してスケジューリングを実施する純粋関数。
 
@@ -605,6 +613,10 @@ def solve(
             `global_constraints` の max_consecutive_slots / forced_break_slots /
             max_slots_per_day もソフト制約として有効。
         time_limit_seconds: CP-SAT のタイムリミット（秒）。
+        random_seed: 指定すると、配置数最大化・ソフト制約最小化の優先順位を
+            崩さない範囲で、同点（tie）の解の中からシード値に応じたランダムな
+            一つを選ぶ（「日程案の再生成」で毎回同じ案になる問題への対応）。
+            ``None``（既定）の場合は従来どおり決定的に解く。
 
     Returns:
         SchedulingResult: 採用された割当一覧と未配置生徒、違反説明。
@@ -735,10 +747,26 @@ def solve(
     if x:
         w_place = _compute_w_place(rules, n_slots, len(student_numbers))
         placement_term = w_place * sum(x.values())
-        if soft_penalty_terms:
-            model.Maximize(placement_term - sum(soft_penalty_terms))
+        main_objective = (
+            placement_term - sum(soft_penalty_terms)
+            if soft_penalty_terms
+            else placement_term
+        )
+        if random_seed is None:
+            model.Maximize(main_objective)
         else:
-            model.Maximize(placement_term)
+            # タイブレーク項: 配置数最大化・ソフト制約最小化（main_objective）が
+            # 完全に同点の解が複数存在する場合に限って、そのうちどれを選ぶかを
+            # シード値で決める。main_objective を SCALE 倍してから加算することで、
+            # タイブレーク項の合計値（高々 len(x) × RANDOM_TIEBREAK_RANGE）が
+            # main_objective の 1 単位差より必ず小さくなるようにし、
+            # 優先順位（配置数 > ソフト制約）を一切崩さない。
+            rng = random.Random(random_seed)
+            scale = len(x) * RANDOM_TIEBREAK_RANGE + 1
+            tie_break_terms = [
+                rng.randrange(RANDOM_TIEBREAK_RANGE) * var for var in x.values()
+            ]
+            model.Maximize(scale * main_objective + sum(tie_break_terms))
     # x が空（valid_starts が全員ゼロ）の場合は自明に解く
 
     # ===== ソルバ実行 =====

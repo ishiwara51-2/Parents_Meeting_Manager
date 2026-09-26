@@ -749,6 +749,107 @@ def test_solve_hard_is_alias_of_solve():
     assert solve_fn is solve_hard_fn
 
 
+# ===== 12. random_seed：タイブレークのランダム化（「日程案の再生成」対応） =====
+
+
+def test_random_seed_none_is_deterministic():
+    """random_seed を指定しない場合、同一入力に対して常に同じ解が返る（既定の互換動作）。"""
+    project = _project(
+        dates=["2026-07-15"],
+        slots=[("16:00", "16:20"), ("16:20", "16:40"), ("16:40", "17:00")],
+        students=[1],
+    )
+    responses = [
+        _response(
+            1,
+            [
+                ("2026-07-15", "16:00", "16:20"),
+                ("2026-07-15", "16:20", "16:40"),
+                ("2026-07-15", "16:40", "17:00"),
+            ],
+        )
+    ]
+    rules = Rules(global_constraints=_loose_global(), student_constraints=[])
+
+    first = solve(project, responses, rules)
+    second = solve(project, responses, rules)
+    assert first.assignments[0].start == second.assignments[0].start
+
+
+def test_random_seed_varies_the_chosen_tied_solution():
+    """複数の同点解（配置数・ソフト制約ペナルティが同じ）が存在する場合、
+    random_seed を変えると選ばれる解がばらつく（再生成のたびに同じ案になる問題への対応）。
+    """
+    project = _project(
+        dates=["2026-07-15"],
+        slots=[("16:00", "16:20"), ("16:20", "16:40"), ("16:40", "17:00")],
+        students=[1],
+    )
+    responses = [
+        _response(
+            1,
+            [
+                ("2026-07-15", "16:00", "16:20"),
+                ("2026-07-15", "16:20", "16:40"),
+                ("2026-07-15", "16:40", "17:00"),
+            ],
+        )
+    ]
+    rules = Rules(global_constraints=_loose_global(), student_constraints=[])
+
+    chosen_starts = {
+        solve(project, responses, rules, random_seed=seed).assignments[0].start
+        for seed in range(20)
+    }
+    # 3 つの同点スロットのうち複数が実際に選ばれる（1 つに固定されない）
+    assert len(chosen_starts) > 1
+
+
+def test_random_seed_does_not_change_placement_count_or_soft_penalty():
+    """random_seed の有無に関わらず、配置数最大化・ソフト制約最小化の結果は変わらない。
+
+    2 名がペアリング制約で近接配置を要求される状況で、random_seed を変えても
+    「両者が隣接スロットに配置される」という最適解の性質自体は保たれることを確認する。
+    """
+    project = _project(
+        dates=["2026-07-15"],
+        slots=[
+            ("16:00", "16:20"),
+            ("16:20", "16:40"),
+            ("16:40", "17:00"),
+            ("17:00", "17:20"),
+        ],
+        students=[1, 2],
+    )
+    responses = [
+        _response(
+            sn,
+            [
+                ("2026-07-15", "16:00", "16:20"),
+                ("2026-07-15", "16:20", "16:40"),
+                ("2026-07-15", "16:40", "17:00"),
+                ("2026-07-15", "17:00", "17:20"),
+            ],
+        )
+        for sn in [1, 2]
+    ]
+    rules = Rules(
+        global_constraints=_loose_global(),
+        student_constraints=[
+            PairingConstraint(student_numbers=[1, 2], weight=10),
+        ],
+    )
+
+    for seed in range(10):
+        result = solve(project, responses, rules, random_seed=seed)
+        assert len(result.assignments) == 2
+        assert result.unassigned_students == []
+        starts = sorted(a.start for a in result.assignments)
+        # 隣接スロット（位置差 1）に配置されている＝ペアリングペナルティが最小
+        positions = [_slot_position(s, "2026-07-15") for s in starts]
+        assert positions[1] - positions[0] == 1
+
+
 # ===== ヘルパ関数 =====
 
 
