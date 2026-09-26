@@ -262,6 +262,43 @@ def test_expired_token_is_refreshed_and_persisted(fake_oauth_client: Path) -> No
     assert saved["token"] == "refreshed-access-token"
 
 
+# ---------- 4b. リフレッシュ失敗（invalid_scope 等）時は未認証として扱われる ----------
+
+def test_refresh_failure_clears_stored_token(fake_oauth_client: Path) -> None:
+    """スコープ変更後の旧トークン等で refresh が RefreshError を送出した場合、
+
+    get_valid_credentials は None を返し、oauth_token.json / oauth_email.json を
+    削除する（以後 /api/auth/status が正しく未認証を返すようにするため）。
+    """
+    from google.auth.exceptions import RefreshError
+
+    from app.services import google_auth
+
+    settings = get_settings()
+    token_path = settings.config_dir / "oauth_token.json"
+    email_path = settings.config_dir / "oauth_email.json"
+    token_path.write_text(
+        _make_credentials_json(token="stored-access-token", expired=True),
+        encoding="utf-8",
+    )
+    email_path.write_text(json.dumps({"email": "teacher@example.com"}), encoding="utf-8")
+
+    def fake_refresh(self, _request):  # type: ignore[no-untyped-def]
+        raise RefreshError("invalid_scope: Bad Request")
+
+    with patch(
+        "google.oauth2.credentials.Credentials.refresh",
+        autospec=True,
+        side_effect=fake_refresh,
+    ):
+        creds = google_auth.get_valid_credentials()
+
+    assert creds is None
+    assert not token_path.exists()
+    assert not email_path.exists()
+    assert google_auth.is_authenticated() is False
+
+
 # ---------- 5. /api/auth/status は未認証時に unauthorized ----------
 
 def test_auth_status_returns_unauthorized_when_no_token(

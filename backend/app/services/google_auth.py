@@ -29,6 +29,7 @@ from pathlib import Path
 from typing import Optional
 
 from google.auth import jwt as google_jwt
+from google.auth.exceptions import RefreshError
 from google.auth.transport.requests import Request as GoogleAuthRequest
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import Flow
@@ -268,16 +269,44 @@ def load_credentials() -> Optional[Credentials]:
     return Credentials.from_authorized_user_info(info, scopes=SCOPES)
 
 
+def _clear_stored_credentials() -> None:
+    """``oauth_token.json`` / ``oauth_email.json`` を削除する。
+
+    リフレッシュ不能なトークン（失効・スコープ変更後の旧トークン等）を
+    ディスクに残したままにしない。以後 ``is_authenticated`` / ``/api/auth/status``
+    が正しく「未認証」を返すようにするため。
+    """
+    for path in (_token_path(), _email_path()):
+        path.unlink(missing_ok=True)
+
+
 def get_valid_credentials() -> Optional[Credentials]:
     """有効な ``Credentials`` を返す。期限切れなら自動リフレッシュ＋保存。
 
     リフレッシュトークンが無い・期限切れの場合は呼び出し側で再認可を促す。
+
+    リフレッシュ自体が失敗した場合（``RefreshError``）も ``None`` を返す。
+    典型例は、スコープ追加後に旧スコープで発行された refresh_token を使い
+    続けたことによる ``invalid_scope`` や、ユーザーが Google 側で認可を
+    取り消した場合の ``invalid_grant``。いずれもユーザー側の再ログインでしか
+    解決しないため、呼び出し側の「未認証」扱い（401 への変換）に委ねる。
+    保存済みトークンは破損扱いとして削除し、次回の ``/api/auth/status`` が
+    正しく未認証を返すようにする。
     """
     creds = load_credentials()
     if creds is None:
         return None
     if creds.expired and creds.refresh_token:
-        creds.refresh(GoogleAuthRequest())
+        try:
+            creds.refresh(GoogleAuthRequest())
+        except RefreshError:
+            logger.warning(
+                "Token refresh failed (revoked or scope changed); "
+                "clearing stored token and requiring re-login",
+                exc_info=True,
+            )
+            _clear_stored_credentials()
+            return None
         _save_credentials(creds)
     return creds
 
