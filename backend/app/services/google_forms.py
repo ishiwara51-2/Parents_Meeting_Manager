@@ -8,11 +8,16 @@ API 呼び出しシーケンス（公式の標準パターン）::
 
     1. forms.create(body={"info": {"title": ...}})
        → タイトルだけ確定。タイトル以外のフィールドはコピーされない仕様
-    2. forms.batchUpdate(formId, body={"requests": [createItem×3, updateFormInfo]})
+    2. drive.permissions.create(fileId=formId, body={"type": "anyone", "role": "reader"})
+       → Form（Drive 上のファイル）の既定アクセス権を「リンクを知っている人全員が
+         閲覧・回答可能」に設定する。Google Workspace 組織のデフォルト共有設定が
+         「制限付き」の場合、これを明示しないと組織外（保護者）が responderUri を
+         開けないことがあるため。失敗しても Form 自体の生成は継続する（警告ログのみ）。
+    3. forms.batchUpdate(formId, body={"requests": [createItem×3, updateFormInfo]})
        → 出席番号 ChoiceQuestion（プルダウン）、候補日×時間枠 matrix、
          自由記述コメント TextQuestion を追加し、続けて Form 説明文
          （複数回送信時は最新回答が採用される旨の注記）を updateFormInfo で設定
-    3. （フォールバック）forms.get(formId)
+    4. （フォールバック）forms.get(formId)
        → batchUpdate の応答に matrix の行 questionId が含まれない場合のみ
          実機 API での挙動が公式リファレンスに明記されていないリスクへの保険
          （`forms_api_research.md` §8 リスク表）
@@ -33,6 +38,7 @@ from datetime import date as date_cls
 from typing import Any
 
 from googleapiclient.discovery import build
+from googleapiclient.errors import HttpError
 
 from app.models.form import FormInfo
 from app.models.project import Project, TimeSlot
@@ -63,6 +69,15 @@ SELECT_ALL_TIMES_COLUMN_LABEL = "終日NG（すべての時間帯が都合悪い
 # ``app.services.polling._sanitize_comment`` でサーバ側のみ行う。
 COMMENT_QUESTION_TITLE = "面談についてのご要望・コメント（任意）"
 COMMENT_MAX_LENGTH = 100
+
+# Form（Drive 上のファイル）の既定アクセス権。「リンクを知っている人全員」が
+# 閲覧・回答できるようにする（type=anyone, role=reader）。
+# Google Workspace 組織のデフォルト共有設定が「制限付き」だと、これを明示的に
+# 設定しない限り組織外（保護者）アカウントが responderUri を開けない場合があるため。
+DRIVE_ANYONE_WITH_LINK_PERMISSION_BODY: dict[str, str] = {
+    "type": "anyone",
+    "role": "reader",
+}
 
 # Form 説明文（タイトル直下に表示）。同じ出席番号で複数回送信された場合の
 # 取り扱いをあらかじめ周知するのに加え、本 Form が「都合の悪い日時」を
@@ -433,8 +448,8 @@ def _build_edit_uri(form_id: str) -> str:
 # ---------------------------------------------------------------------------
 
 
-def _build_forms_service():
-    """Forms API クライアントを組み立てる（認証込み）。
+def _get_credentials() -> Any:
+    """有効な Google OAuth Credentials を返す。
 
     Phase 1.3 の ``google_auth.get_valid_credentials`` を呼び出すことで、
     トークン期限切れ時は自動でリフレッシュ・ディスク再保存される。
@@ -447,8 +462,41 @@ def _build_forms_service():
         raise GoogleAuthRequiredError(
             "Google OAuth トークンが未保存です。/api/auth/google から認証してください"
         )
+    return creds
+
+
+def _build_forms_service(creds: Any):
+    """Forms API クライアントを組み立てる。"""
     # discovery cache を無効化（ファイルシステム書込みエラー回避）
     return build("forms", "v1", credentials=creds, cache_discovery=False)
+
+
+def _build_drive_service(creds: Any):
+    """Drive API クライアントを組み立てる（Form の共有設定変更に使用）。"""
+    return build("drive", "v3", credentials=creds, cache_discovery=False)
+
+
+def _grant_anyone_with_link_access(drive_service, form_id: str) -> None:
+    """Form（Drive ファイル）に「リンクを知っている人全員」の閲覧権限を付与する。
+
+    保護者アカウントが Google Workspace 組織外である場合など、組織のデフォルト
+    共有設定次第では明示しないと responderUri を開けないことがあるための対応。
+    補助的な設定であり、失敗しても Form 自体の生成は継続する（警告ログのみ）。
+    """
+    try:
+        drive_service.permissions().create(
+            fileId=form_id,
+            body=DRIVE_ANYONE_WITH_LINK_PERMISSION_BODY,
+            fields="id",
+        ).execute()
+    except HttpError:
+        logger.warning(
+            "Failed to grant 'anyone with the link' access to form %s; "
+            "responder access may depend on the Workspace default sharing "
+            "settings",
+            form_id,
+            exc_info=True,
+        )
 
 
 def create_form(project: Project) -> FormInfo:
@@ -464,8 +512,8 @@ def create_form(project: Project) -> FormInfo:
     Returns:
         FormInfo: 生成済み Form の保存用メタデータ。
     """
-    service = _build_forms_service()
-    forms_api = service.forms()
+    creds = _get_credentials()
+    forms_api = _build_forms_service(creds).forms()
 
     candidate_dates: list[str] = [d.isoformat() for d in project.candidate_dates]
     time_slot_labels: list[str] = [
@@ -479,7 +527,11 @@ def create_form(project: Project) -> FormInfo:
     form_id: str = create_response["formId"]
     responder_uri: str = create_response.get("responderUri") or ""
 
-    # 2. batchUpdate で質問 2 件を一括追加
+    # 2. Form（Drive ファイル）の既定アクセス権を「リンクを知っている人全員」に設定
+    drive_api = _build_drive_service(creds)
+    _grant_anyone_with_link_access(drive_api, form_id)
+
+    # 3. batchUpdate で質問 2 件を一括追加
     batch_response: dict[str, Any] = forms_api.batchUpdate(
         formId=form_id,
         body=_build_batch_update_body(
@@ -495,7 +547,7 @@ def create_form(project: Project) -> FormInfo:
     # コメント questionId（任意項目のため、取得失敗は None のまま継続）
     comment_qid = _extract_comment_qid(batch_response)
 
-    # 3. matrix 行 questionId（候補日ごと）は batchUpdate 応答に含まれる
+    # 4. matrix 行 questionId（候補日ごと）は batchUpdate 応答に含まれる
     #    こともあるが、公式リファレンスに明記が無いため、
     #    取得できなければフォールバックで forms.get
     row_question_id_by_date = _extract_row_qids_from_batch(
@@ -536,4 +588,5 @@ __all__ = [
     "SELECT_ALL_TIMES_COLUMN_LABEL",
     "COMMENT_MAX_LENGTH",
     "FORM_DESCRIPTION",
+    "DRIVE_ANYONE_WITH_LINK_PERMISSION_BODY",
 ]

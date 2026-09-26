@@ -23,10 +23,12 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
+from googleapiclient.errors import HttpError
 
 from app.config import get_settings
 from app.main import create_app
 from app.services.google_forms import (
+    DRIVE_ANYONE_WITH_LINK_PERMISSION_BODY,
     FORM_DESCRIPTION,
     SELECT_ALL_TIMES_COLUMN_LABEL,
 )
@@ -504,6 +506,71 @@ def test_form_json_persisted_with_required_fields(
         "2026-07-15",
         "2026-07-16",
     }
+
+
+# ---------------------------------------------------------------------------
+# 5b. Drive 共有設定：「リンクを知っている人全員」を既定アクセス権として付与
+# ---------------------------------------------------------------------------
+
+
+def test_create_form_grants_anyone_with_link_permission(
+    isolated_data_root: Path, fake_creds: object
+) -> None:
+    """Form 作成時、``drive.permissions.create`` で共有設定を
+    「リンクを知っている人全員が閲覧可能」（type=anyone, role=reader）に設定する。
+
+    Google Workspace 組織のデフォルト共有設定が「制限付き」でも、組織外
+    （保護者）アカウントが responderUri を開けるようにするための対応。
+    """
+    fake_api = FakeFormsApi()
+    service = _make_service(fake_api)
+
+    with TestClient(create_app()) as client:
+        project_id = _create_project(client)
+        with (
+            patch(
+                "app.services.google_forms.google_auth.get_valid_credentials",
+                return_value=fake_creds,
+            ),
+            patch("app.services.google_forms.build", return_value=service),
+        ):
+            resp = client.post(f"/api/projects/{project_id}/form")
+
+    assert resp.status_code in (200, 201), resp.text
+
+    permissions_create = service.permissions.return_value.create
+    assert permissions_create.called, "drive.permissions().create が呼ばれていない"
+    call_kwargs = permissions_create.call_args.kwargs
+    assert call_kwargs["fileId"] == "FAKE_FORM_ID"
+    assert call_kwargs["body"] == DRIVE_ANYONE_WITH_LINK_PERMISSION_BODY
+
+
+def test_create_form_succeeds_even_if_permission_grant_fails(
+    isolated_data_root: Path, fake_creds: object
+) -> None:
+    """Drive 共有設定の付与が失敗しても、Form 作成自体は成功する。
+
+    補助的な設定であり、失敗しても Form 生成の成功可否には影響させない方針
+    （``_grant_anyone_with_link_access`` 参照）。
+    """
+    fake_api = FakeFormsApi()
+    service = _make_service(fake_api)
+    service.permissions.return_value.create.return_value.execute.side_effect = HttpError(
+        MagicMock(status=403), b"forbidden"
+    )
+
+    with TestClient(create_app()) as client:
+        project_id = _create_project(client)
+        with (
+            patch(
+                "app.services.google_forms.google_auth.get_valid_credentials",
+                return_value=fake_creds,
+            ),
+            patch("app.services.google_forms.build", return_value=service),
+        ):
+            resp = client.post(f"/api/projects/{project_id}/form")
+
+    assert resp.status_code in (200, 201), resp.text
 
 
 # ---------------------------------------------------------------------------
