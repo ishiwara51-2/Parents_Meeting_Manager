@@ -528,7 +528,7 @@ def test_sync_responses_parses_matrix_via_row_question_id_map(
 def test_sync_responses_expands_select_all_times_column(
     isolated_data_root: Path, fake_creds: object
 ) -> None:
-    """行（候補日）の「終日NG（すべての時間帯が都合悪い）」列がチェックされた場合、
+    """行（候補日）の「この日は全部不可」列がチェックされた場合、
     その日の個別チェックの有無にかかわらず、その日の全時間枠が
     「都合が悪い」として展開され、その日は availability から除外される
     （＝参加可能枠が無くなる）。
@@ -543,7 +543,7 @@ def test_sync_responses_expands_select_all_times_column(
                     _make_form_response(
                         response_id="R1",
                         student_number="1",
-                        # 2026-07-15: 「終日NG」のみチェック（個別枠は未チェック）
+                        # 2026-07-15: 「この日は全部不可」のみチェック（個別枠は未チェック）
                         row0_slots=[SELECT_ALL_TIMES_COLUMN_LABEL],
                         # 2026-07-16: 通常どおり 1 枠のみ都合が悪いとしてチェック
                         row1_slots=["16:20-16:40"],
@@ -574,7 +574,7 @@ def test_sync_responses_expands_select_all_times_column(
 
     triples = {(a["date"], a["start"], a["end"]) for a in saved["availability"]}
     assert triples == {
-        # 「終日NG」展開により 2026-07-15 は 2 枠とも都合悪 → 参加可能枠なし
+        # 「この日は全部不可」展開により 2026-07-15 は 2 枠とも都合悪 → 参加可能枠なし
         # 2026-07-16 は 16:20-16:40 のみ都合悪 → 16:00-16:20 のみ参加可能
         ("2026-07-16", "16:00:00", "16:20:00"),
     }
@@ -976,3 +976,33 @@ def test_sync_responses_handles_pagination(
     # 2 ページ取得した（pageToken=TOKEN_2 で 2 回目を呼んでいる）
     assert len(resp_resource.list_calls) == 2
     assert resp_resource.list_calls[1].get("pageToken") == "TOKEN_2"
+
+
+# ---------------------------------------------------------------------------
+# 列ラベル（表示形式 / 旧形式）の解釈
+# ---------------------------------------------------------------------------
+
+
+def test_resolve_time_pairs_accepts_display_labels() -> None:
+    """「16時00分〜16時20分は不可」形式の列名が (start, end) に戻る。"""
+    from app.services.polling import _resolve_time_pairs
+
+    pairs = _resolve_time_pairs(
+        ["9時05分〜10時00分は不可", "16:20-16:40"],
+        time_slot_labels=["09:05-10:00", "16:20-16:40"],
+    )
+    assert pairs == [("09:05", "10:00"), ("16:20", "16:40")]
+
+
+def test_resolve_time_pairs_select_all_new_and_legacy_labels() -> None:
+    """新旧どちらの「終日」列でも全時間枠に展開される。"""
+    from app.services.google_forms import (
+        LEGACY_SELECT_ALL_TIMES_COLUMN_LABELS,
+        SELECT_ALL_TIMES_COLUMN_LABEL,
+    )
+    from app.services.polling import _resolve_time_pairs
+
+    slots = ["16:00-16:20", "16:20-16:40"]
+    expected = [("16:00", "16:20"), ("16:20", "16:40")]
+    for label in (SELECT_ALL_TIMES_COLUMN_LABEL, *LEGACY_SELECT_ALL_TIMES_COLUMN_LABELS):
+        assert _resolve_time_pairs([label], time_slot_labels=slots) == expected

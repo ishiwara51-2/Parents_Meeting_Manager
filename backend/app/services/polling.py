@@ -43,7 +43,9 @@ from app.services import google_auth
 from app.services.google_forms import (
     COMMENT_MAX_LENGTH,
     GoogleAuthRequiredError,
+    LEGACY_SELECT_ALL_TIMES_COLUMN_LABELS,
     SELECT_ALL_TIMES_COLUMN_LABEL,
+    normalize_time_slot_label,
 )
 
 
@@ -302,7 +304,14 @@ def _resolve_time_pairs(
     その行は全時間枠を選択したものとして ``time_slot_labels`` 全体を展開する。
     通常のラベルは ``"HH:MM-HH:MM"`` を ``"-"`` で分解する。
     """
-    source = time_slot_labels if SELECT_ALL_TIMES_COLUMN_LABEL in labels else labels
+    select_all = any(
+        label in (SELECT_ALL_TIMES_COLUMN_LABEL, *LEGACY_SELECT_ALL_TIMES_COLUMN_LABELS)
+        for label in labels
+    )
+    # 表示ラベル（「16時00分〜16時20分は不可」）は内部ラベルへ戻して扱う
+    source = time_slot_labels if select_all else [
+        normalize_time_slot_label(label) for label in labels
+    ]
 
     pairs: list[tuple[str, str]] = []
     for label in source:

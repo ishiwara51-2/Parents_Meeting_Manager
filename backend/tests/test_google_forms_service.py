@@ -30,6 +30,7 @@ from app.main import create_app
 from app.services.google_forms import (
     DRIVE_ANYONE_WITH_LINK_PERMISSION_BODY,
     FORM_DESCRIPTION,
+    CONFIRM_OPTION,
     SELECT_ALL_TIMES_COLUMN_LABEL,
 )
 
@@ -83,6 +84,8 @@ class FakeFormsApi:
         # **matrix の questionId は空配列**にして「forms.get フォールバック」を誘発
         self.batch_response = batch_response or {
             "replies": [
+                {"createItem": {"itemId": "ITEM_CONFIRM", "questionId": ["QID_CONFIRM"]}},
+                {"createItem": {"itemId": "ITEM_PAGE_BREAK"}},
                 {"createItem": {"itemId": "ITEM_SN", "questionId": ["QID_SN"]}},
                 {"createItem": {"itemId": "ITEM_MATRIX", "questionId": []}},
                 {
@@ -250,12 +253,23 @@ def test_create_form_sends_correct_batch_update_requests(
     )
     body = fake_api.batch_update_called_with["body"]
     requests = body["requests"]
-    assert len(requests) == 4, (
+    assert len(requests) == 6, (
         f"リクエストは4件（出席番号 + matrix + コメント + updateFormInfo）であるべき: {requests}"
     )
 
-    # 1 件目: 出席番号 ChoiceQuestion（プロジェクトの student_numbers からプルダウン生成）
-    sn_req = requests[0]["createItem"]
+    # 1 件目: 1 ページ目の理解確認（必須ラジオ、選択肢は「分かりました」のみ）
+    confirm_q = requests[0]["createItem"]["item"]["questionItem"]["question"]
+    assert confirm_q["required"] is True
+    assert confirm_q["choiceQuestion"]["type"] == "RADIO"
+    assert [o["value"] for o in confirm_q["choiceQuestion"]["options"]] == [
+        CONFIRM_OPTION
+    ]
+
+    # 2 件目: ページ区切り（これ以降が 2 ページ目）
+    assert "pageBreakItem" in requests[1]["createItem"]["item"]
+
+    # 3 件目: 出席番号 ChoiceQuestion（プロジェクトの student_numbers からプルダウン生成）
+    sn_req = requests[2]["createItem"]
     sn_question = sn_req["item"]["questionItem"]["question"]
     assert sn_question["required"] is True
     assert sn_question["choiceQuestion"]["type"] == "DROP_DOWN"
@@ -265,19 +279,19 @@ def test_create_form_sends_correct_batch_update_requests(
         {"value": "3"},
     ]
 
-    # 2 件目: matrix（QuestionGroupItem + Grid + CHECKBOX）
-    matrix_req = requests[1]["createItem"]
+    # 4 件目: matrix（QuestionGroupItem + Grid + CHECKBOX）
+    matrix_req = requests[3]["createItem"]
     qgi = matrix_req["item"]["questionGroupItem"]
     assert qgi["grid"]["columns"]["type"] == "CHECKBOX"
 
-    # 3 件目: 自由記述コメント TextQuestion（任意項目）
-    comment_req = requests[2]["createItem"]
+    # 5 件目: 自由記述コメント TextQuestion（任意項目）
+    comment_req = requests[4]["createItem"]
     comment_question = comment_req["item"]["questionItem"]["question"]
     assert comment_question["required"] is False
     assert comment_question["textQuestion"]["paragraph"] is False
 
-    # 4 件目: Form 説明文更新（複数回送信時は最新回答が採用される旨の注記）
-    update_info_req = requests[3]["updateFormInfo"]
+    # 6 件目: Form 説明文更新（複数回送信時は最新回答が採用される旨の注記）
+    update_info_req = requests[5]["updateFormInfo"]
     assert update_info_req["info"]["description"] == FORM_DESCRIPTION
     assert "description" in update_info_req["updateMask"]
 
@@ -311,14 +325,14 @@ def test_matrix_rows_and_columns_match_project_definition(
         ):
             client.post(f"/api/projects/{project_id}/form")
 
-    matrix_req = fake_api.batch_update_called_with["body"]["requests"][1]
+    matrix_req = fake_api.batch_update_called_with["body"]["requests"][3]
     qgi = matrix_req["createItem"]["item"]["questionGroupItem"]
 
     # columns: 時間枠ラベルが HH:MM-HH:MM 形式で順序通り、末尾に「終日」一括選択列を追加
     column_values = [c["value"] for c in qgi["grid"]["columns"]["options"]]
     assert column_values == [
-        "16:00-16:20",
-        "16:20-16:40",
+        "16時00分〜16時20分は不可",
+        "16時20分〜16時40分は不可",
         SELECT_ALL_TIMES_COLUMN_LABEL,
     ]
 
@@ -400,6 +414,8 @@ def test_forms_get_skipped_when_batch_response_includes_row_question_ids(
     fake_api = FakeFormsApi(
         batch_response={
             "replies": [
+                {"createItem": {"itemId": "ITEM_CONFIRM", "questionId": ["QID_CONFIRM"]}},
+                {"createItem": {"itemId": "ITEM_PAGE_BREAK"}},
                 {"createItem": {"itemId": "ITEM_SN", "questionId": ["QID_SN"]}},
                 {
                     "createItem": {

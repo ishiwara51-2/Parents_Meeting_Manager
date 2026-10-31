@@ -34,6 +34,7 @@ API 呼び出しシーケンス（公式の標準パターン）::
 from __future__ import annotations
 
 import logging
+import re
 from datetime import date as date_cls
 from typing import Any
 
@@ -62,7 +63,36 @@ logger = logging.getLogger(__name__)
 # （チェック＝NG、未チェック＝参加可能）。``_parse_availability`` 側で
 # 候補日時全体からチェック済み（NG）分を差し引いた補集合を
 # ``Response.availability``（＝参加可能な日時）として組み立てる。
-SELECT_ALL_TIMES_COLUMN_LABEL = "終日NG（すべての時間帯が都合悪い）"
+SELECT_ALL_TIMES_COLUMN_LABEL = "この日は全部不可"
+
+# 旧ラベルの Form で集めた回答も解釈できるよう残す。
+LEGACY_SELECT_ALL_TIMES_COLUMN_LABELS = ("終日NG（すべての時間帯が都合悪い）",)
+
+# 時間枠列の表示ラベル。内部ラベル（``"HH:MM-HH:MM"``、``form.json`` の
+# ``time_slot_labels``）とは別に、Form 上では「16時00分〜16時20分は不可」と
+# 表示し、チェックの意味（＝その時間は来られない）を列名自体で伝える。
+# 回答パース時は ``normalize_time_slot_label`` で内部ラベルへ戻す。
+_DISPLAY_LABEL_RE = re.compile(
+    r"^(\d{1,2})時(\d{2})分〜(\d{1,2})時(\d{2})分(?:は不可|はダメ)$"
+)
+
+# Form 内の質問の並び順（``createItem.location.index`` と batchUpdate 応答
+# ``replies`` の添字を兼ねる）。確認質問を先頭に置いたため出席番号は 1 番目。
+CONFIRM_INDEX = 0
+PAGE_BREAK_INDEX = 1
+STUDENT_NUMBER_INDEX = 2
+MATRIX_INDEX = 3
+COMMENT_INDEX = 4
+
+# 1 ページ目は「何を入力するのか」の理解確認だけを置く。必須のラジオを選ばないと
+# 2 ページ目（実際の回答欄）へ進めない。
+CONFIRM_QUESTION_TITLE = "【確認】この調査で入力するのは「来られない日時」です"
+CONFIRM_QUESTION_DESCRIPTION = (
+    "来られる日時は入力しません。内容を読み、「分かりました」を選ぶと"
+    "次のページに進めます。"
+)
+CONFIRM_OPTION = "分かりました"
+ANSWER_PAGE_TITLE = "来られない日時の入力"
 
 # 自由記述コメント欄。Forms API の TextQuestion には文字数バリデーションが
 # 無いため（`forms_api_research.md` §5）、100 文字超の入力に対する防御は
@@ -91,8 +121,8 @@ DRIVE_ANYONE_WITH_LINK_PERMISSION_BODY: dict[str, str] = {
 # 改行の代わりに番号と全角スペースで区切りを表現する（実機で確認済み）。
 FORM_DESCRIPTION = (
     "【ご注意】"
-    "①このFormでは「都合の悪い（参加できない）日時」にチェックを入れてください。"
-    "チェックしなかった日時は「参加可能」として扱われます。"
+    "①入力するのは「来られない日時」だけです。"
+    "来られる日時は何も入力しないでください。"
     "　"
     "②同じ出席番号で2回以上回答を送信した場合、日程調整には最後に送信した"
     "内容のみが使用されます（古い回答は無視されます。内容を修正したい場合は、"
@@ -128,6 +158,27 @@ def _format_time_slot_label(slot: TimeSlot) -> str:
     return f"{start}-{end}"
 
 
+def _format_time_slot_display_label(slot: TimeSlot) -> str:
+    """時間枠の Form 上の列名を返す（例: ``"16時00分〜16時20分は不可"``）。"""
+    return (
+        f"{slot.start.hour}時{slot.start.minute:02d}分"
+        f"〜{slot.end.hour}時{slot.end.minute:02d}分は不可"
+    )
+
+
+def normalize_time_slot_label(label: str) -> str:
+    """回答に含まれる列ラベルを内部ラベル（``"HH:MM-HH:MM"``）へ戻す。
+
+    表示ラベル（``"16時00分〜16時20分は不可"``）は変換し、旧形式の
+    ``"HH:MM-HH:MM"`` や終日列などそれ以外はそのまま返す。
+    """
+    m = _DISPLAY_LABEL_RE.match(label)
+    if not m:
+        return label
+    sh, sm, eh, em = m.groups()
+    return f"{int(sh):02d}:{sm}-{int(eh):02d}:{em}"
+
+
 _WEEKDAY_JA = "月火水木金土日"
 
 
@@ -143,6 +194,45 @@ def _format_date_label(date_str: str) -> str:
     return f"{date_str}（{weekday}）"
 
 
+def _build_confirm_item() -> dict[str, Any]:
+    """1 ページ目の理解確認（必須ラジオ、選択肢は「分かりました」のみ）。
+
+    必須のため選ばないと次ページへ進めない。回答内容は日程調整に使わない
+    （パース側は questionId で参照するため無視される）。
+    """
+    return {
+        "createItem": {
+            "location": {"index": CONFIRM_INDEX},
+            "item": {
+                "title": CONFIRM_QUESTION_TITLE,
+                "description": CONFIRM_QUESTION_DESCRIPTION,
+                "questionItem": {
+                    "question": {
+                        "required": True,
+                        "choiceQuestion": {
+                            "type": "RADIO",
+                            "options": [{"value": CONFIRM_OPTION}],
+                        },
+                    }
+                },
+            },
+        }
+    }
+
+
+def _build_page_break_item() -> dict[str, Any]:
+    """確認ページと回答ページを分けるページ区切りの ``createItem``。"""
+    return {
+        "createItem": {
+            "location": {"index": PAGE_BREAK_INDEX},
+            "item": {
+                "title": ANSWER_PAGE_TITLE,
+                "pageBreakItem": {},
+            },
+        }
+    }
+
+
 def _build_student_number_item(*, student_numbers: list[int]) -> dict[str, Any]:
     """出席番号質問の ``createItem`` リクエストを組み立てる。
 
@@ -152,7 +242,7 @@ def _build_student_number_item(*, student_numbers: list[int]) -> dict[str, Any]:
     """
     return {
         "createItem": {
-            "location": {"index": 0},
+            "location": {"index": STUDENT_NUMBER_INDEX},
             "item": {
                 "title": "出席番号",
                 "description": "あなたの出席番号をプルダウンから選択してください",
@@ -173,7 +263,7 @@ def _build_student_number_item(*, student_numbers: list[int]) -> dict[str, Any]:
 
 
 def _build_matrix_item(
-    *, candidate_dates: list[str], time_slot_labels: list[str]
+    *, candidate_dates: list[str], time_display_labels: list[str]
 ) -> dict[str, Any]:
     """候補日×時間枠の matrix ``createItem`` リクエストを組み立てる。
 
@@ -198,16 +288,14 @@ def _build_matrix_item(
     """
     return {
         "createItem": {
-            "location": {"index": 1},
+            "location": {"index": MATRIX_INDEX},
             "item": {
-                "title": (
-                    "⚠【重要】都合の悪い（参加できない）日時にチェックを"
-                    "入れてください⚠"
-                    "※チェックした日時＝参加できない時間帯です。"
-                    "チェックしなかった日時は「参加可能」として扱われます。"
-                    "（複数選択可、都合の良い日は空欄のままで構いません）。"
-                    f"「{SELECT_ALL_TIMES_COLUMN_LABEL}」にチェックするとその日は"
-                    "終日すべての時間帯が都合悪いものとして扱われます。"
+                "title": "来られない日時にチェック（空欄＝来られます）",
+                "description": (
+                    "「不可」と書かれた枠にチェックした時間は面談できません。"
+                    "チェックしなかった時間は来られるものとして扱います（複数選択可）。"
+                    f"1日すべて不可の日は「{SELECT_ALL_TIMES_COLUMN_LABEL}」に"
+                    "チェックしてください。"
                 ),
                 "questionGroupItem": {
                     "grid": {
@@ -216,7 +304,7 @@ def _build_matrix_item(
                             "options": [
                                 {"value": label}
                                 for label in [
-                                    *time_slot_labels,
+                                    *time_display_labels,
                                     SELECT_ALL_TIMES_COLUMN_LABEL,
                                 ]
                             ],
@@ -240,12 +328,12 @@ def _build_comment_item() -> dict[str, Any]:
     """自由記述コメント質問の ``createItem`` リクエストを組み立てる。
 
     matrix（インデックス 1）より後ろのインデックス 2 に配置する。
-    ``_extract_row_qids_from_batch`` が matrix を ``replies[1]`` 固定で参照する
+    ``_extract_row_qids_from_batch`` が matrix を ``replies[MATRIX_INDEX]`` 固定で参照する
     ため、matrix より前に別の質問を挿し込むとそちらが壊れる。
     """
     return {
         "createItem": {
-            "location": {"index": 2},
+            "location": {"index": COMMENT_INDEX},
             "item": {
                 "title": COMMENT_QUESTION_TITLE,
                 "description": (
@@ -282,14 +370,14 @@ def _build_batch_update_body(
     *,
     student_numbers: list[int],
     candidate_dates: list[str],
-    time_slot_labels: list[str],
+    time_display_labels: list[str],
 ) -> dict[str, Any]:
     """``forms.batchUpdate`` リクエスト本体を組み立てる。
 
-    インデックス 0 = 出席番号 ChoiceQuestion（プルダウン）、インデックス 1 = matrix、
-    インデックス 2 = 自由記述コメント TextQuestion、インデックス 3 = Form 説明文更新。
-    順序は ``form.json`` 保存時の ``row_question_id_by_date`` 復元にも依存する
-    （matrix は常にインデックス 1 に固定する）。説明文更新は既存の抽出処理が
+    順序は ``CONFIRM_INDEX`` / ``PAGE_BREAK_INDEX`` / ``STUDENT_NUMBER_INDEX`` / ``MATRIX_INDEX`` /
+    ``COMMENT_INDEX``（確認質問 → ページ区切り → 出席番号 → matrix → コメント）で、その後ろに
+    Form 説明文更新が続く。``form.json`` 保存時の ``row_question_id_by_date``
+    復元にも依存する。説明文更新は既存の抽出処理が
     参照しない末尾に追加しているため、他のインデックスに影響しない。
 
     出席番号選択の確認表示（プルダウンで選んだ値をチェックボックス質問の文言に
@@ -299,10 +387,12 @@ def _build_batch_update_body(
     """
     return {
         "requests": [
+            _build_confirm_item(),
+            _build_page_break_item(),
             _build_student_number_item(student_numbers=student_numbers),
             _build_matrix_item(
                 candidate_dates=candidate_dates,
-                time_slot_labels=time_slot_labels,
+                time_display_labels=time_display_labels,
             ),
             _build_comment_item(),
             _build_update_form_info_request(),
@@ -323,7 +413,7 @@ def _extract_student_number_qid(batch_response: dict[str, Any]) -> str:
     """
     try:
         qid_list = (
-            batch_response["replies"][0]["createItem"]["questionId"]
+            batch_response["replies"][STUDENT_NUMBER_INDEX]["createItem"]["questionId"]
         )
     except (KeyError, IndexError, TypeError) as exc:
         raise RuntimeError(
@@ -345,7 +435,7 @@ def _extract_comment_qid(batch_response: dict[str, Any]) -> str | None:
     コメント欄なしとして無視される）。
     """
     try:
-        qid_list = batch_response["replies"][2]["createItem"]["questionId"]
+        qid_list = batch_response["replies"][COMMENT_INDEX]["createItem"]["questionId"]
     except (KeyError, IndexError, TypeError):
         logger.warning(
             "forms.batchUpdate 応答からコメント questionId が取得できません。"
@@ -373,7 +463,7 @@ def _extract_row_qids_from_batch(
     """
     try:
         qid_list = (
-            batch_response["replies"][1]["createItem"]["questionId"]
+            batch_response["replies"][MATRIX_INDEX]["createItem"]["questionId"]
         )
     except (KeyError, IndexError, TypeError):
         return {}
@@ -531,13 +621,16 @@ def create_form(project: Project) -> FormInfo:
     drive_api = _build_drive_service(creds)
     _grant_anyone_with_link_access(drive_api, form_id)
 
-    # 3. batchUpdate で質問 2 件を一括追加
+    # 3. batchUpdate で質問を一括追加
     batch_response: dict[str, Any] = forms_api.batchUpdate(
         formId=form_id,
         body=_build_batch_update_body(
             student_numbers=project.student_numbers,
             candidate_dates=candidate_dates,
-            time_slot_labels=time_slot_labels,
+            time_display_labels=[
+                _format_time_slot_display_label(sl)
+                for sl in project.candidate_time_slots
+            ],
         ),
     ).execute()
 
