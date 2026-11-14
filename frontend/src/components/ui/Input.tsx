@@ -1,5 +1,9 @@
 /** フォーム入力の共通スタイルを持つ <input>/<textarea> ラッパー。属性はそのまま透過する。 */
-import type { InputHTMLAttributes, TextareaHTMLAttributes } from 'react'
+import type {
+  InputHTMLAttributes,
+  SelectHTMLAttributes,
+  TextareaHTMLAttributes,
+} from 'react'
 import { cn } from './cn'
 
 // Input と Textarea で共有する枠線・フォーカス・disabled 時のスタイル
@@ -36,5 +40,18 @@ export function Textarea({
       className={cn(baseField, 'leading-6 resize-y', className)}
       {...rest}
     />
+  )
+}
+
+/** プルダウン用。Input と同じ見た目で、属性はそのまま透過する。 */
+export function Select({
+  className,
+  children,
+  ...rest
+}: SelectHTMLAttributes<HTMLSelectElement>) {
+  return (
+    <select className={cn(baseField, 'h-10', className)} {...rest}>
+      {children}
+    </select>
   )
 }

@@ -4,7 +4,8 @@
  *
  * グローバルルールを複製した状態から開始し、このプロジェクト固有のルールを設定する。
  * 制約種別: 連続コマ数上限 / 強制空きコマ数 / 1日あたりコマ数上限 （グローバル系）
- * Phase 4.3 では global_constraints のみ実装（student_constraints は将来対応）
+ * 生徒別ルール（student_constraints）は「生徒番号｜ルール｜詳細設定」の行として編集する。
+ * 現在選べる生徒別ルールは「期間優先（prefer_date_range）」のみ。
  */
 
 import { useState, useEffect } from 'react'
@@ -12,6 +13,13 @@ import { useParams, useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { rulesApi } from '../api'
 import type { Rules } from '../api'
+import StudentRulesEditor from '../components/StudentRulesEditor'
+import {
+  mergeStudentConstraints,
+  rowsFromConstraints,
+  validateRows,
+} from '../lib/studentRules'
+import type { StudentRuleRow } from '../lib/studentRules'
 import {
   Alert,
   AppShell,
@@ -32,6 +40,9 @@ export default function ProjectRulesPage() {
   const [localRules, setLocalRules] = useState<Rules | null>(null)
   const [saved, setSaved] = useState(false)
   const [apiError, setApiError] = useState('')
+  // 生徒別ルールの編集行（入力途中の文字列を保持するため、保存時に API 形式へ変換する）
+  const [studentRows, setStudentRows] = useState<StudentRuleRow[]>([])
+  const [rowErrors, setRowErrors] = useState<Record<string, string>>({})
 
   const { data: rules, isLoading } = useQuery({
     queryKey: ['project-rules', projectId],
@@ -42,6 +53,7 @@ export default function ProjectRulesPage() {
   useEffect(() => {
     if (rules) {
       setLocalRules(rules)
+      setStudentRows(rowsFromConstraints(rules.student_constraints))
     }
   }, [rules])
 
@@ -60,7 +72,20 @@ export default function ProjectRulesPage() {
   const handleSave = () => {
     if (!localRules) return
     setSaved(false)
-    mutation.mutate(localRules)
+    const errors = validateRows(studentRows)
+    setRowErrors(errors)
+    if (Object.keys(errors).length > 0) {
+      setApiError('生徒別ルールの入力内容を確認してください')
+      return
+    }
+    setApiError('')
+    mutation.mutate({
+      ...localRules,
+      student_constraints: mergeStudentConstraints(
+        localRules.student_constraints,
+        studentRows,
+      ),
+    })
   }
 
   // global_constraints のうち1フィールドだけを差し替えるヘルパー。
@@ -182,6 +207,18 @@ export default function ProjectRulesPage() {
               className="w-24"
             />
           </FormField>
+        </Card>
+
+        <Card>
+          <CardHeader
+            title="生徒別ルール"
+            description="生徒番号を「,」区切りで入力し、適用するルールと詳細設定を選びます。"
+          />
+          <StudentRulesEditor
+            rows={studentRows}
+            onChange={setStudentRows}
+            errors={rowErrors}
+          />
         </Card>
 
         <div className="flex gap-2 sticky bottom-0 bg-surface-muted py-3 -mx-6 px-6 border-t border-border">
