@@ -14,7 +14,7 @@ export type StudentRuleType = 'prefer_date_range'
 export const STUDENT_RULE_OPTIONS: { value: StudentRuleType; label: string }[] = [
   {
     value: 'prefer_date_range',
-    label: '詳細設定で指定した期間の日にちに優先的に割り当てる',
+    label: '指定期間の日に優先して割り当てる',
   },
 ]
 
@@ -89,25 +89,55 @@ export function parseStudentNumbers(text: string): { numbers: number[]; invalid:
   return { numbers, invalid }
 }
 
-/** 行ごとの入力エラーメッセージ（問題なければ null）。 */
-export function validateRow(row: StudentRuleRow): string | null {
+/** 入力値をプロジェクトの内容と照らすための情報（未指定の項目はチェックしない）。 */
+export interface ProjectScope {
+  /** プロジェクトの生徒番号 */
+  studentNumbers?: number[]
+  /** プロジェクトの候補日 "YYYY-MM-DD"[]（最初の日〜最後の日を対象期間とする） */
+  candidateDates?: string[]
+}
+
+/**
+ * 行ごとの入力エラーメッセージ（問題なければ null）。
+ * scope を渡すと、プロジェクトに存在しない生徒番号や、対象期間外の日付もエラーにする。
+ */
+export function validateRow(row: StudentRuleRow, scope: ProjectScope = {}): string | null {
+  const allowedNumbers = scope.studentNumbers
   const { numbers, invalid } = parseStudentNumbers(row.studentsText)
   if (invalid.length > 0) {
     return `生徒番号は 1 以上の整数を "," 区切りで入力してください（不正な値: ${invalid.join(' ')}）`
   }
   if (numbers.length === 0) return '生徒番号を入力してください'
+  if (allowedNumbers) {
+    const outOfRange = numbers.filter((n) => !allowedNumbers.includes(n))
+    if (outOfRange.length > 0) {
+      return `このプロジェクトに存在しない生徒番号です: ${outOfRange.join(',')}`
+    }
+  }
   if (row.ruleType === 'prefer_date_range') {
     if (!row.dateFrom || !row.dateTo) return '優先する期間の開始日と終了日を指定してください'
     if (row.dateFrom > row.dateTo) return '期間の開始日は終了日以前にしてください'
+    const dates = scope.candidateDates
+    if (dates && dates.length > 0) {
+      const sorted = [...dates].sort()
+      const first = sorted[0]
+      const last = sorted[sorted.length - 1]
+      if (row.dateFrom < first || row.dateTo > last) {
+        return `優先期間はプロジェクトの対象期間（${first} 〜 ${last}）内で指定してください`
+      }
+    }
   }
   return null
 }
 
 /** 全行を検証し、{行 id: エラー} を返す（エラーのある行だけ含む）。 */
-export function validateRows(rows: StudentRuleRow[]): Record<string, string> {
+export function validateRows(
+  rows: StudentRuleRow[],
+  scope: ProjectScope = {},
+): Record<string, string> {
   const errors: Record<string, string> = {}
   for (const row of rows) {
-    const e = validateRow(row)
+    const e = validateRow(row, scope)
     if (e) errors[row.id] = e
   }
   return errors

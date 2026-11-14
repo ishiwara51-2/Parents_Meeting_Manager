@@ -14,6 +14,9 @@ import { useMutation, useQuery } from '@tanstack/react-query'
 import type { FormEvent } from 'react'
 import { projectsApi, rulesApi } from '../api'
 import type { Rules } from '../api'
+import StudentRulesEditor from '../components/StudentRulesEditor'
+import { mergeStudentConstraints, validateRows } from '../lib/studentRules'
+import type { StudentRuleRow } from '../lib/studentRules'
 import {
   Alert,
   AppShell,
@@ -337,6 +340,7 @@ function expandStudentNumberRange(
 /** バリデーション対象のフィールド識別子（fieldErrors のキーとして使用） */
 type FieldKey =
   | 'displayName'
+  | 'studentRules'
   | 'candidateDates'
   | 'timeSlots'
   | 'studentNumbers'
@@ -361,6 +365,9 @@ export default function ProjectNewPage() {
   const [rangeEnd, setRangeEnd] = useState('')
   const [studentNumbersText, setStudentNumbersText] = useState('')
   const [localRules, setLocalRules] = useState<Rules | null>(null)
+  // 生徒別ルールの編集行（作成ボタン押下時に検証して student_constraints へ変換する）
+  const [studentRows, setStudentRows] = useState<StudentRuleRow[]>([])
+  const [studentRowErrors, setStudentRowErrors] = useState<Record<string, string>>({})
   const [fieldErrors, setFieldErrors] = useState<Partial<Record<FieldKey, string>>>(
     {},
   )
@@ -435,6 +442,15 @@ export default function ProjectNewPage() {
 
     setFieldErrors(errors)
 
+    const rowErrors = validateRows(studentRows, {
+      studentNumbers,
+      candidateDates: dates,
+    })
+    setStudentRowErrors(rowErrors)
+    if (Object.keys(rowErrors).length > 0) {
+      errors.studentRules = '生徒別ルールの入力内容を確認してください'
+    }
+
     if (Object.keys(errors).length > 0) {
       // テストや AT が getByRole('alert') で具体メッセージを参照できるよう、
       // 個別エラー文をすべて連結してトップ Alert に表示する。
@@ -453,7 +469,13 @@ export default function ProjectNewPage() {
 
       if (localRules) {
         try {
-          await rulesApi.putProject(project.project_id, localRules)
+          await rulesApi.putProject(project.project_id, {
+            ...localRules,
+            student_constraints: mergeStudentConstraints(
+              localRules.student_constraints,
+              studentRows,
+            ),
+          })
         } catch {
           // ルール保存に失敗してもプロジェクト作成自体は成功しているため遷移は継続する
           // （プロジェクト作成後に「ルール設定」画面から再設定できる）
@@ -882,6 +904,18 @@ export default function ProjectNewPage() {
               </FormField>
             </div>
           )}
+        </Card>
+
+        <Card>
+          <CardHeader
+            title="生徒別ルール"
+            description="生徒番号を「,」区切りで入力し、適用するルールと詳細設定を選びます。プロジェクト作成後も「ルール設定」画面から変更できます。"
+          />
+          <StudentRulesEditor
+            rows={studentRows}
+            onChange={setStudentRows}
+            errors={studentRowErrors}
+          />
         </Card>
 
         <div className="flex gap-2 sticky bottom-0 bg-surface-muted py-3 -mx-6 px-6 border-t border-border">

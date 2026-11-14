@@ -11,7 +11,7 @@
 import { useState, useEffect } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { rulesApi } from '../api'
+import { projectsApi, rulesApi } from '../api'
 import type { Rules } from '../api'
 import StudentRulesEditor from '../components/StudentRulesEditor'
 import {
@@ -40,6 +40,12 @@ export default function ProjectRulesPage() {
   const [localRules, setLocalRules] = useState<Rules | null>(null)
   const [saved, setSaved] = useState(false)
   const [apiError, setApiError] = useState('')
+  // 生徒番号の範囲チェック用にプロジェクトの生徒番号を取得する（未取得ならチェックしない）
+  const { data: project } = useQuery({
+    queryKey: ['project', projectId],
+    queryFn: () => projectsApi.get(projectId!),
+  })
+
   // 生徒別ルールの編集行（入力途中の文字列を保持するため、保存時に API 形式へ変換する）
   const [studentRows, setStudentRows] = useState<StudentRuleRow[]>([])
   const [rowErrors, setRowErrors] = useState<Record<string, string>>({})
@@ -72,7 +78,10 @@ export default function ProjectRulesPage() {
   const handleSave = () => {
     if (!localRules) return
     setSaved(false)
-    const errors = validateRows(studentRows)
+    const errors = validateRows(studentRows, {
+      studentNumbers: project?.student_numbers,
+      candidateDates: project?.candidate_dates,
+    })
     setRowErrors(errors)
     if (Object.keys(errors).length > 0) {
       setApiError('生徒別ルールの入力内容を確認してください')

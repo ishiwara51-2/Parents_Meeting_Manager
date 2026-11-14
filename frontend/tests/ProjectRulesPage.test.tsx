@@ -21,6 +21,9 @@ vi.mock('../src/api', () => ({
     startGoogle: vi.fn(),
     logout: vi.fn(),
   },
+  projectsApi: {
+    get: vi.fn(),
+  },
   rulesApi: {
     getProject: vi.fn(),
     putProject: vi.fn(),
@@ -127,6 +130,10 @@ describe('ProjectRulesPage 生徒別ルール', () => {
     vi.mocked(api.authApi.status).mockResolvedValue({ authenticated: false } as never)
     vi.mocked(api.rulesApi.getProject).mockResolvedValue(DEFAULT_RULES as never)
     vi.mocked(api.rulesApi.putProject).mockResolvedValue(DEFAULT_RULES as never)
+    vi.mocked(api.projectsApi.get).mockResolvedValue({
+      project_id: PROJECT_ID,
+      student_numbers: [1, 2, 3, 8],
+    } as never)
   })
 
   it('行を追加して入力し、保存すると prefer_date_range として送信される', async () => {
@@ -135,7 +142,7 @@ describe('ProjectRulesPage 生徒別ルール', () => {
     await user.click(await screen.findByRole('button', { name: /生徒別ルールを追加/ }))
     await user.type(screen.getByLabelText('1行目 生徒番号（カンマ区切り）'), '3, 8')
     expect(screen.getByLabelText('1行目 ルール')).toHaveDisplayValue(
-      '詳細設定で指定した期間の日にちに優先的に割り当てる',
+      '指定期間の日に優先して割り当てる',
     )
     await user.type(screen.getByLabelText('1行目 優先期間の開始日'), '2026-07-15')
     await user.type(screen.getByLabelText('1行目 優先期間の終了日'), '2026-07-16')
@@ -160,6 +167,29 @@ describe('ProjectRulesPage 生徒別ルール', () => {
     await user.click(await screen.findByRole('button', { name: /生徒別ルールを追加/ }))
     await user.click(screen.getByRole('button', { name: '保存' }))
     expect(await screen.findByText('生徒番号を入力してください')).toBeInTheDocument()
+    expect(api.rulesApi.putProject).not.toHaveBeenCalled()
+  })
+})
+
+describe('ProjectRulesPage 生徒番号の範囲チェック', () => {
+  it('プロジェクトに存在しない生徒番号はエラーにして保存しない', async () => {
+    vi.clearAllMocks()
+    vi.mocked(api.authApi.status).mockResolvedValue({ authenticated: false } as never)
+    vi.mocked(api.rulesApi.getProject).mockResolvedValue(DEFAULT_RULES as never)
+    vi.mocked(api.projectsApi.get).mockResolvedValue({
+      project_id: PROJECT_ID,
+      student_numbers: [1, 2, 3],
+    } as never)
+    const user = userEvent.setup()
+    renderProjectRulesPage()
+    await user.click(await screen.findByRole('button', { name: /生徒別ルールを追加/ }))
+    await user.type(screen.getByLabelText('1行目 生徒番号（カンマ区切り）'), '2,99')
+    await user.type(screen.getByLabelText('1行目 優先期間の開始日'), '2026-07-15')
+    await user.type(screen.getByLabelText('1行目 優先期間の終了日'), '2026-07-16')
+    await user.click(screen.getByRole('button', { name: '保存' }))
+    expect(
+      await screen.findByText('このプロジェクトに存在しない生徒番号です: 99'),
+    ).toBeInTheDocument()
     expect(api.rulesApi.putProject).not.toHaveBeenCalled()
   })
 })

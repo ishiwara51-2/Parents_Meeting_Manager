@@ -26,13 +26,13 @@ function RuleDetail({
   switch (row.ruleType) {
     case 'prefer_date_range':
       return (
-        <div className="flex items-center gap-2 rounded-md border border-border bg-surface-muted px-3 py-1.5">
+        <div className="flex min-w-0 flex-[2] items-center gap-2 rounded-md border border-border bg-surface-muted px-2 py-1.5">
           <Input
             type="date"
             aria-label={`${index + 1}行目 優先期間の開始日`}
             value={row.dateFrom}
             onChange={(e) => onPatch({ dateFrom: e.target.value })}
-            className="w-40"
+            className="min-w-0 flex-1 px-2"
           />
           <span className="text-sm text-fg-muted">〜</span>
           <Input
@@ -40,7 +40,7 @@ function RuleDetail({
             aria-label={`${index + 1}行目 優先期間の終了日`}
             value={row.dateTo}
             onChange={(e) => onPatch({ dateTo: e.target.value })}
-            className="w-40"
+            className="min-w-0 flex-1 px-2"
           />
         </div>
       )
@@ -59,13 +59,13 @@ export default function StudentRulesEditor({ rows, onChange, errors }: Props) {
 
       {rows.map((row, i) => (
         <div key={row.id} className="flex flex-col gap-1.5">
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="flex flex-nowrap items-center gap-2">
             <Input
               aria-label={`${i + 1}行目 生徒番号（カンマ区切り）`}
               placeholder="生徒番号（例: 3,8,12）"
               value={row.studentsText}
               onChange={(e) => patchRow(row.id, { studentsText: e.target.value })}
-              className="w-56"
+              className="min-w-0 flex-1"
             />
             <Select
               aria-label={`${i + 1}行目 ルール`}
@@ -73,7 +73,7 @@ export default function StudentRulesEditor({ rows, onChange, errors }: Props) {
               onChange={(e) =>
                 patchRow(row.id, { ruleType: e.target.value as StudentRuleType })
               }
-              className="w-auto min-w-64"
+              className="min-w-0 flex-[2] truncate"
             >
               {STUDENT_RULE_OPTIONS.map((o) => (
                 <option key={o.value} value={o.value}>
@@ -85,6 +85,7 @@ export default function StudentRulesEditor({ rows, onChange, errors }: Props) {
             <Button
               variant="secondary"
               size="sm"
+              className="shrink-0"
               onClick={() => onChange(rows.filter((r) => r.id !== row.id))}
               aria-label={`${i + 1}行目を削除`}
             >

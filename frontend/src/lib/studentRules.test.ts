@@ -49,3 +49,27 @@ describe('mergeStudentConstraints', () => {
     expect(merged).toEqual([existing[0], existing[1]])
   })
 })
+
+describe('validateRow 範囲チェック', () => {
+  const row = { ...emptyRow(), studentsText: '1,5', dateFrom: '2026-07-15', dateTo: '2026-07-16' }
+  it('範囲外の番号があればエラー', () =>
+    expect(validateRow(row, { studentNumbers: [1, 2, 3] })).toBe('このプロジェクトに存在しない生徒番号です: 5'))
+  it('すべて範囲内なら null、scope 未指定ならチェックしない', () => {
+    expect(validateRow(row, { studentNumbers: [1, 5] })).toBeNull()
+    expect(validateRow(row)).toBeNull()
+  })
+})
+
+describe('validateRow 対象期間チェック', () => {
+  const scope = { candidateDates: ['2026-07-16', '2026-07-14', '2026-07-15'] }
+  const row = { ...emptyRow(), studentsText: '1', dateFrom: '2026-07-14', dateTo: '2026-07-16' }
+  it('候補日の最初〜最後の範囲内なら null', () => {
+    expect(validateRow(row, scope)).toBeNull()
+    expect(validateRow({ ...row, dateFrom: '2026-07-15', dateTo: '2026-07-15' }, scope)).toBeNull()
+  })
+  it('範囲外ならエラー', () => {
+    const msg = '優先期間はプロジェクトの対象期間（2026-07-14 〜 2026-07-16）内で指定してください'
+    expect(validateRow({ ...row, dateFrom: '2026-07-13' }, scope)).toBe(msg)
+    expect(validateRow({ ...row, dateTo: '2026-07-17' }, scope)).toBe(msg)
+  })
+})
