@@ -133,6 +133,7 @@ describe('ProjectRulesPage 生徒別ルール', () => {
     vi.mocked(api.projectsApi.get).mockResolvedValue({
       project_id: PROJECT_ID,
       student_numbers: [1, 2, 3, 8],
+      candidate_dates: ['2026-07-15', '2026-07-16'],
     } as never)
   })
 
@@ -144,8 +145,9 @@ describe('ProjectRulesPage 生徒別ルール', () => {
     expect(screen.getByLabelText('1行目 ルール')).toHaveDisplayValue(
       '指定期間の日に優先して割り当てる',
     )
-    await user.type(screen.getByLabelText('1行目 優先期間の開始日'), '2026-07-15')
-    await user.type(screen.getByLabelText('1行目 優先期間の終了日'), '2026-07-16')
+    await user.click(screen.getByLabelText('1行目 優先期間'))
+    await user.click(screen.getByLabelText('2026-07-15'))
+    await user.click(screen.getByLabelText('2026-07-16'))
     await user.click(screen.getByRole('button', { name: '保存' }))
 
     await waitFor(() => expect(api.rulesApi.putProject).toHaveBeenCalled())
@@ -179,17 +181,40 @@ describe('ProjectRulesPage 生徒番号の範囲チェック', () => {
     vi.mocked(api.projectsApi.get).mockResolvedValue({
       project_id: PROJECT_ID,
       student_numbers: [1, 2, 3],
+      candidate_dates: ['2026-07-15', '2026-07-16'],
     } as never)
     const user = userEvent.setup()
     renderProjectRulesPage()
     await user.click(await screen.findByRole('button', { name: /生徒別ルールを追加/ }))
     await user.type(screen.getByLabelText('1行目 生徒番号（カンマ区切り）'), '2,99')
-    await user.type(screen.getByLabelText('1行目 優先期間の開始日'), '2026-07-15')
-    await user.type(screen.getByLabelText('1行目 優先期間の終了日'), '2026-07-16')
+    await user.click(screen.getByLabelText('1行目 優先期間'))
+    await user.click(screen.getByLabelText('2026-07-15'))
+    await user.click(screen.getByLabelText('2026-07-16'))
     await user.click(screen.getByRole('button', { name: '保存' }))
     expect(
       await screen.findByText('このプロジェクトに存在しない生徒番号です: 99'),
     ).toBeInTheDocument()
     expect(api.rulesApi.putProject).not.toHaveBeenCalled()
+  })
+})
+
+describe('ProjectRulesPage 期間の選択', () => {
+  it('候補日以外の日はカレンダー上で選択できない', async () => {
+    vi.clearAllMocks()
+    vi.mocked(api.authApi.status).mockResolvedValue({ authenticated: false } as never)
+    vi.mocked(api.rulesApi.getProject).mockResolvedValue(DEFAULT_RULES as never)
+    vi.mocked(api.projectsApi.get).mockResolvedValue({
+      project_id: PROJECT_ID,
+      student_numbers: [1],
+      candidate_dates: ['2026-07-15', '2026-07-17'],
+    } as never)
+    const user = userEvent.setup()
+    renderProjectRulesPage()
+    await user.click(await screen.findByRole('button', { name: /生徒別ルールを追加/ }))
+    await waitFor(() => expect(screen.getByLabelText('1行目 優先期間')).toBeEnabled())
+    await user.click(screen.getByLabelText('1行目 優先期間'))
+    expect(screen.getByLabelText('2026-07-15')).toBeEnabled()
+    expect(screen.getByLabelText('2026-07-16（選択不可）')).toBeDisabled()
+    expect(screen.getByLabelText('2026-07-17')).toBeEnabled()
   })
 })

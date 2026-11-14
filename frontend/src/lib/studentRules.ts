@@ -93,13 +93,13 @@ export function parseStudentNumbers(text: string): { numbers: number[]; invalid:
 export interface ProjectScope {
   /** プロジェクトの生徒番号 */
   studentNumbers?: number[]
-  /** プロジェクトの候補日 "YYYY-MM-DD"[]（最初の日〜最後の日を対象期間とする） */
+  /** プロジェクトの候補日 "YYYY-MM-DD"[]（期間の開始日・終了日はこの中から選ぶ） */
   candidateDates?: string[]
 }
 
 /**
  * 行ごとの入力エラーメッセージ（問題なければ null）。
- * scope を渡すと、プロジェクトに存在しない生徒番号や、対象期間外の日付もエラーにする。
+ * scope を渡すと、プロジェクトに存在しない生徒番号や、候補日以外の日付もエラーにする。
  */
 export function validateRow(row: StudentRuleRow, scope: ProjectScope = {}): string | null {
   const allowedNumbers = scope.studentNumbers
@@ -119,11 +119,8 @@ export function validateRow(row: StudentRuleRow, scope: ProjectScope = {}): stri
     if (row.dateFrom > row.dateTo) return '期間の開始日は終了日以前にしてください'
     const dates = scope.candidateDates
     if (dates && dates.length > 0) {
-      const sorted = [...dates].sort()
-      const first = sorted[0]
-      const last = sorted[sorted.length - 1]
-      if (row.dateFrom < first || row.dateTo > last) {
-        return `優先期間はプロジェクトの対象期間（${first} 〜 ${last}）内で指定してください`
+      if (!dates.includes(row.dateFrom) || !dates.includes(row.dateTo)) {
+        return '優先期間の開始日・終了日は、プロジェクトの候補日から選んでください'
       }
     }
   }

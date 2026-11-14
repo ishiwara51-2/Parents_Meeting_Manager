@@ -60,16 +60,15 @@ describe('validateRow 範囲チェック', () => {
   })
 })
 
-describe('validateRow 対象期間チェック', () => {
-  const scope = { candidateDates: ['2026-07-16', '2026-07-14', '2026-07-15'] }
+describe('validateRow 候補日チェック', () => {
+  const scope = { candidateDates: ['2026-07-14', '2026-07-16'] }
   const row = { ...emptyRow(), studentsText: '1', dateFrom: '2026-07-14', dateTo: '2026-07-16' }
-  it('候補日の最初〜最後の範囲内なら null', () => {
+  const msg = '優先期間の開始日・終了日は、プロジェクトの候補日から選んでください'
+  it('開始日・終了日が候補日なら null（間に候補日でない日があってもよい）', () => {
     expect(validateRow(row, scope)).toBeNull()
-    expect(validateRow({ ...row, dateFrom: '2026-07-15', dateTo: '2026-07-15' }, scope)).toBeNull()
   })
-  it('範囲外ならエラー', () => {
-    const msg = '優先期間はプロジェクトの対象期間（2026-07-14 〜 2026-07-16）内で指定してください'
-    expect(validateRow({ ...row, dateFrom: '2026-07-13' }, scope)).toBe(msg)
+  it('開始日または終了日が候補日でなければエラー', () => {
+    expect(validateRow({ ...row, dateFrom: '2026-07-15' }, scope)).toBe(msg)
     expect(validateRow({ ...row, dateTo: '2026-07-17' }, scope)).toBe(msg)
   })
 })

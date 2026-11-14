@@ -2,6 +2,7 @@
  * 生徒別ルール設定エディタ。
  * 1 行 = 生徒番号（"," 区切りのテキストボックス）｜ルール選択プルダウン｜ルールごとの詳細設定。
  */
+import PeriodPicker from './PeriodPicker'
 import { Button, Input, Select } from './ui'
 import { emptyRow, STUDENT_RULE_OPTIONS } from '../lib/studentRules'
 import type { StudentRuleRow, StudentRuleType } from '../lib/studentRules'
@@ -11,43 +12,37 @@ interface Props {
   onChange: (rows: StudentRuleRow[]) => void
   /** 行 id → エラーメッセージ（保存時の検証結果） */
   errors: Record<string, string>
+  /** 期間として選択できる日（プロジェクトの候補日） */
+  candidateDates: string[]
 }
 
 /** ルール種別ごとの詳細設定ボックス。ルールを増やすときはここに分岐を足す。 */
 function RuleDetail({
   row,
   index,
+  candidateDates,
   onPatch,
 }: {
   row: StudentRuleRow
   index: number
+  candidateDates: string[]
   onPatch: (patch: Partial<StudentRuleRow>) => void
 }) {
   switch (row.ruleType) {
     case 'prefer_date_range':
       return (
-        <div className="flex min-w-0 flex-[2] items-center gap-2 rounded-md border border-border bg-surface-muted px-2 py-1.5">
-          <Input
-            type="date"
-            aria-label={`${index + 1}行目 優先期間の開始日`}
-            value={row.dateFrom}
-            onChange={(e) => onPatch({ dateFrom: e.target.value })}
-            className="min-w-0 flex-1 px-2"
-          />
-          <span className="text-sm text-fg-muted">〜</span>
-          <Input
-            type="date"
-            aria-label={`${index + 1}行目 優先期間の終了日`}
-            value={row.dateTo}
-            onChange={(e) => onPatch({ dateTo: e.target.value })}
-            className="min-w-0 flex-1 px-2"
-          />
-        </div>
+        <PeriodPicker
+          from={row.dateFrom}
+          to={row.dateTo}
+          candidateDates={candidateDates}
+          ariaLabel={`${index + 1}行目 優先期間`}
+          onChange={(from, to) => onPatch({ dateFrom: from, dateTo: to })}
+        />
       )
   }
 }
 
-export default function StudentRulesEditor({ rows, onChange, errors }: Props) {
+export default function StudentRulesEditor({ rows, onChange, errors, candidateDates }: Props) {
   const patchRow = (id: string, patch: Partial<StudentRuleRow>) =>
     onChange(rows.map((r) => (r.id === id ? { ...r, ...patch } : r)))
 
@@ -81,7 +76,11 @@ export default function StudentRulesEditor({ rows, onChange, errors }: Props) {
                 </option>
               ))}
             </Select>
-            <RuleDetail row={row} index={i} onPatch={(p) => patchRow(row.id, p)} />
+            <RuleDetail
+              row={row}
+              index={i}
+              candidateDates={candidateDates}
+              onPatch={(p) => patchRow(row.id, p)} />
             <Button
               variant="secondary"
               size="sm"

@@ -227,6 +227,7 @@ export default function ProjectRulesPage() {
             rows={studentRows}
             onChange={setStudentRows}
             errors={rowErrors}
+            candidateDates={project?.candidate_dates ?? []}
           />
         </Card>
 

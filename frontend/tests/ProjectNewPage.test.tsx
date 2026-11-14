@@ -369,8 +369,9 @@ describe('ProjectNewPage 生徒別ルール', () => {
 
     await user.click(screen.getByRole('button', { name: /生徒別ルールを追加/ }))
     await user.type(screen.getByLabelText('1行目 生徒番号（カンマ区切り）'), '1,2')
-    await user.type(screen.getByLabelText('1行目 優先期間の開始日'), day)
-    await user.type(screen.getByLabelText('1行目 優先期間の終了日'), day)
+    await user.click(screen.getByLabelText('1行目 優先期間'))
+    await user.click(screen.getByLabelText(day))
+    await user.click(screen.getByLabelText(day))
     await user.click(screen.getByRole('button', { name: '作成' }))
 
     await waitFor(() => expect(api.rulesApi.putProject).toHaveBeenCalled())
@@ -397,34 +398,16 @@ describe('ProjectNewPage 生徒別ルール', () => {
     expect(api.projectsApi.create).not.toHaveBeenCalled()
   })
 
-  it('優先期間が候補日の範囲外なら作成せずエラーにする', async () => {
+  it('出席番号の範囲外の生徒番号は作成せずエラーにする', async () => {
     const user = userEvent.setup()
     renderWithRoutes()
     const day = await fillRequired(user)
 
     await user.click(screen.getByRole('button', { name: /生徒別ルールを追加/ }))
-    await user.type(screen.getByLabelText('1行目 生徒番号（カンマ区切り）'), '1')
-    await user.type(screen.getByLabelText('1行目 優先期間の開始日'), '2000-01-01')
-    await user.type(screen.getByLabelText('1行目 優先期間の終了日'), day)
-    await user.click(screen.getByRole('button', { name: '作成' }))
-
-    expect(
-      await screen.findByText(
-        `優先期間はプロジェクトの対象期間（${day} 〜 ${day}）内で指定してください`,
-      ),
-    ).toBeInTheDocument()
-    expect(api.projectsApi.create).not.toHaveBeenCalled()
-  })
-
-  it('出席番号の範囲外の生徒番号は作成せずエラーにする', async () => {
-    const user = userEvent.setup()
-    renderWithRoutes()
-    await fillRequired(user)
-
-    await user.click(screen.getByRole('button', { name: /生徒別ルールを追加/ }))
     await user.type(screen.getByLabelText('1行目 生徒番号（カンマ区切り）'), '2,4')
-    await user.type(screen.getByLabelText('1行目 優先期間の開始日'), '2026-07-15')
-    await user.type(screen.getByLabelText('1行目 優先期間の終了日'), '2026-07-16')
+    await user.click(screen.getByLabelText('1行目 優先期間'))
+    await user.click(screen.getByLabelText(day))
+    await user.click(screen.getByLabelText(day))
     await user.click(screen.getByRole('button', { name: '作成' }))
 
     expect(

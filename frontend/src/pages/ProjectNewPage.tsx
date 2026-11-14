@@ -915,6 +915,7 @@ export default function ProjectNewPage() {
             rows={studentRows}
             onChange={setStudentRows}
             errors={studentRowErrors}
+            candidateDates={candidateDates}
           />
         </Card>
 
