@@ -17,6 +17,7 @@ requirements.md §3.2 の ``rules.json`` スキーマおよび §4.5 / §4.6.2 �
         {"type": "pairing", "student_numbers": [5, 12], "weight": 8},
         {"type": "avoid_time", "student_number": 7, "avoid_after": "18:00", "weight": 5},
         {"type": "prefer_time", "student_number": 3, "prefer_before": "17:00", "weight": 5},
+        {"type": "prefer_date_range", "student_numbers": [3, 8], "date_from": "2026-07-15", "date_to": "2026-07-16", "weight": 5},
         {"type": "duration_multiplier", "student_number": 9, "multiplier": 2}
       ]
     }
@@ -32,7 +33,7 @@ import datetime as _dt
 from datetime import time
 from typing import Annotated, Literal, Union
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 #: 制約重みの上限・下限（requirements.md §4.5.2「重み（0〜10）」）。
 WEIGHT_MIN = 0
@@ -108,6 +109,29 @@ class PreferTimeConstraint(BaseModel):
     weight: int = Field(..., ge=WEIGHT_MIN, le=WEIGHT_MAX, description="ソフト制約重み 0〜10")
 
 
+class PreferDateRangeConstraint(BaseModel):
+    """期間優先制約（ソフト）。
+
+    ``student_numbers`` の生徒を、``date_from``〜``date_to``（両端含む）の期間内に
+    優先的に割り当てる。期間外への配置にペナルティを課すため、期間内に配置できない
+    場合のみ期間外へ配置される（未配置にはならない）。
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    type: Literal["prefer_date_range"] = "prefer_date_range"
+    student_numbers: list[int] = Field(..., min_length=1, description="対象の出席番号")
+    date_from: _dt.date = Field(..., description="優先期間の開始日（含む）")
+    date_to: _dt.date = Field(..., description="優先期間の終了日（含む）")
+    weight: int = Field(..., ge=WEIGHT_MIN, le=WEIGHT_MAX, description="ソフト制約重み 0〜10")
+
+    @model_validator(mode="after")
+    def _check_range(self) -> "PreferDateRangeConstraint":
+        if self.date_from > self.date_to:
+            raise ValueError("date_from は date_to 以前でなければなりません")
+        return self
+
+
 class DurationMultiplierConstraint(BaseModel):
     """所要時間倍率制約（ハード）。
 
@@ -128,6 +152,7 @@ StudentConstraint = Annotated[
         PairingConstraint,
         AvoidTimeConstraint,
         PreferTimeConstraint,
+        PreferDateRangeConstraint,
         DurationMultiplierConstraint,
     ],
     Field(discriminator="type"),

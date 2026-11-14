@@ -75,6 +75,17 @@ Phase 3.2 でハード制約のみ実装し、Phase 3.3a で以下の 5 種の�
     - 「優先帯への配置にボーナス」ではなく「優先帯外にペナルティ」として実装。
       これにより「未配置（x=0）はペナルティ無し」となり、配置インセンティブを歪めない。
 
+ソフト制約 11: 期間優先（PreferDateRangeConstraint）
+    - 指定出席番号の生徒を date_from〜date_to の期間内に優先配置する。
+    - 期間外の開始位置 x[i, s] に weight のペナルティを課す（時間帯優先と同方式）。
+      期間内に配置できない場合のみ期間外へ配置され、未配置にはならない。
+
+ソフト制約 10: 日別コマ数の均等化（最下位優先）
+    - 期間中の全候補日について、各日の占有コマ数の二乗和をペナルティ化する
+      （合計が同じなら均等なほど小さい）。
+    - 優先順位は「配置数 > 上記ソフト制約 5〜9 > 日別均等化」の辞書式。
+      回答された可能日時・教師不可・その他ルールに抵触しない範囲でのみ均等化する。
+
 グローバルソフト制約の重み:
     `Rules` モデルの GlobalConstraints は連続コマ・1日上限に明示的な weight フィールドを
     持たない（Phase 1.2 で確定）。Phase 3.3a では DEFAULT_GLOBAL_SOFT_WEIGHT = 5 を採用。
@@ -108,6 +119,7 @@ from app.models import (
     AvoidTimeConstraint,
     DurationMultiplierConstraint,
     PairingConstraint,
+    PreferDateRangeConstraint,
     PreferTimeConstraint,
     Project,
     Response,
@@ -550,6 +562,61 @@ def _add_prefer_time_penalty(
     return penalty_terms
 
 
+def _add_day_balance_penalty(
+    model: cp_model.CpModel,
+    occ_per_slot: list[object],
+    all_slots: list[tuple[date, time, time]],
+) -> tuple[list[object], int]:
+    """日別コマ数の均等化ペナルティ項と、その理論最大値を返す（ソフト制約 10）。
+
+    各日 d の占有コマ数 c_d について Σ_d c_d^2 を最小化する。総コマ数が同じなら
+    均等配分のとき最小となる（凸関数）。重みは 1 で、呼び出し側が目的関数全体を
+    スケールすることで他の全目的より低い優先度にする。
+    """
+    slots_by_date: dict[date, list[int]] = {}
+    for t, (d, _s, _e) in enumerate(all_slots):
+        slots_by_date.setdefault(d, []).append(t)
+    if len(slots_by_date) < 2:
+        return [], 0
+    terms: list[object] = []
+    max_penalty = 0
+    for d, indices in slots_by_date.items():
+        n = len(indices)
+        count = model.NewIntVar(0, n, f"bal_cnt_{d.isoformat()}")
+        model.Add(count == sum(occ_per_slot[t] for t in indices))
+        sq = model.NewIntVar(0, n * n, f"bal_sq_{d.isoformat()}")
+        model.AddMultiplicationEquality(sq, [count, count])
+        terms.append(sq)
+        max_penalty += n * n
+    return terms, max_penalty
+
+
+def _add_prefer_date_range_penalty(
+    x: dict[tuple[int, int], cp_model.IntVar],
+    all_slots: list[tuple[date, time, time]],
+    valid_starts: list[list[int]],
+    student_index_map: dict[int, int],
+    constraint: PreferDateRangeConstraint,
+) -> list[object]:
+    """期間優先制約のペナルティ項を返す（ソフト制約 11）。
+
+    対象生徒 i の開始位置 s の日付が [date_from, date_to] の外なら x[(i, s)] に
+    weight のペナルティを加える。weight=0 のときは空リスト。
+    """
+    if constraint.weight == 0:
+        return []
+    penalty_terms: list[object] = []
+    for sn in constraint.student_numbers:
+        i = student_index_map.get(sn)
+        if i is None:
+            continue
+        for s in valid_starts[i]:
+            d = all_slots[s][0]
+            if d < constraint.date_from or d > constraint.date_to:
+                penalty_terms.append(constraint.weight * x[(i, s)])
+    return penalty_terms
+
+
 def _compute_w_place(rules: Rules, n_slots: int, n_students: int) -> int:
     """配置インセンティブの大重み W_PLACE を計算する。
 
@@ -583,6 +650,9 @@ def _compute_w_place(rules: Rules, n_slots: int, n_students: int) -> int:
             max_soft += c.weight
         elif isinstance(c, PreferTimeConstraint):
             max_soft += c.weight
+        elif isinstance(c, PreferDateRangeConstraint):
+            # 対象生徒それぞれ最大 1 回配置 → ペナルティ最大 weight × 対象人数
+            max_soft += c.weight * len(c.student_numbers)
     # +1 して厳密に上回るようにする。さらに n_students を足して安全マージン。
     return max_soft + n_students + 1
 
@@ -694,6 +764,8 @@ def solve(
 
     # ===== ソフト制約のペナルティ項（Phase 3.3a） =====
     soft_penalty_terms: list[object] = []
+    balance_terms: list[object] = []
+    balance_max = 0
 
     if x:  # 決定変数が無ければソフト制約は無意味（trivial）
         occ_per_slot = _build_occupancy_expr(x, valid_starts, multipliers, n_slots)
@@ -720,6 +792,11 @@ def solve(
             )
         )
 
+        # 10. 日別コマ数の均等化（最下位優先）
+        balance_terms, balance_max = _add_day_balance_penalty(
+            model, occ_per_slot, all_slots
+        )
+
         # 7-9. per-student ソフト制約
         for c in rules.student_constraints:
             if isinstance(c, PairingConstraint):
@@ -740,6 +817,12 @@ def solve(
                         x, all_slots, valid_starts, student_index_map, c
                     )
                 )
+            elif isinstance(c, PreferDateRangeConstraint):
+                soft_penalty_terms.extend(
+                    _add_prefer_date_range_penalty(
+                        x, all_slots, valid_starts, student_index_map, c
+                    )
+                )
             # DurationMultiplierConstraint はハード制約なので無視
 
     # ===== 目的関数 =====
@@ -752,6 +835,10 @@ def solve(
             if soft_penalty_terms
             else placement_term
         )
+        if balance_terms:
+            # 均等化は他の全目的より低優先: main_objective を (最大ペナルティ+1) 倍し、
+            # 均等化ペナルティの全変動幅が main_objective の 1 単位差未満になるようにする。
+            main_objective = (balance_max + 1) * main_objective - sum(balance_terms)
         if random_seed is None:
             model.Maximize(main_objective)
         else:

@@ -65,12 +65,14 @@ export interface GlobalConstraints {
  * - pairing: student_numbers を同時刻/近接に配置する（きょうだい等）
  * - avoid_time: avoid_after 以降を避ける
  * - prefer_time: prefer_before 以前を優先する
+ * - prefer_date_range: student_numbers を date_from〜date_to の期間に優先配置する
  * - duration_multiplier: 通常コマ数に対する所要時間の倍率（multiplier）
  */
 export type StudentConstraintType =
   | 'pairing'
   | 'avoid_time'
   | 'prefer_time'
+  | 'prefer_date_range'
   | 'duration_multiplier'
 
 /**
@@ -83,6 +85,8 @@ export interface StudentConstraint {
   student_number?: number
   avoid_after?: string
   prefer_before?: string
+  date_from?: string // "YYYY-MM-DD"（prefer_date_range）
+  date_to?: string   // "YYYY-MM-DD"（prefer_date_range）
   multiplier?: number
   weight?: number
 }

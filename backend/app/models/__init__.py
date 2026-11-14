@@ -15,6 +15,7 @@ from app.models.rules import (
     DurationMultiplierConstraint,
     GlobalConstraints,
     PairingConstraint,
+    PreferDateRangeConstraint,
     PreferTimeConstraint,
     Rules,
     StudentConstraint,
@@ -34,6 +35,7 @@ __all__ = [
     "PairingConstraint",
     "AvoidTimeConstraint",
     "PreferTimeConstraint",
+    "PreferDateRangeConstraint",
     "DurationMultiplierConstraint",
     # response
     "Response",

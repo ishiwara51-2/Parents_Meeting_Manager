@@ -41,6 +41,7 @@ from app.models import (
     DurationMultiplierConstraint,
     GlobalConstraints,
     PairingConstraint,
+    PreferDateRangeConstraint,
     PreferTimeConstraint,
     Project,
     Response,
@@ -860,3 +861,100 @@ def _slot_position(start_time: time, date_str: str) -> int:
         start_time.minute - base.minute
     )
     return minutes // 20
+
+
+# ===== 10. 日別コマ数の均等化 =====
+
+
+def test_day_balance_spreads_students_evenly_across_dates():
+    """全員が全日可のとき、期間中の全日付にコマ数が均等に割り振られる。"""
+    slots = [("16:00", "16:20"), ("16:20", "16:40"), ("16:40", "17:00")]
+    dates = ["2026-07-15", "2026-07-16", "2026-07-17"]
+    project = _project(dates=dates, slots=slots, students=list(range(1, 7)))
+    avail = [(d, s, e) for d in dates for s, e in slots]
+    responses = [_response(n, avail) for n in range(1, 7)]
+    rules = Rules(global_constraints=_loose_global(), student_constraints=[])
+
+    result = solve(project, responses, rules)
+
+    assert result.unassigned_students == []
+    counts = Counter(a.date for a in result.assignments)
+    assert sorted(counts.values()) == [2, 2, 2]
+
+
+def test_day_balance_does_not_override_availability():
+    """回答可能日が偏っている場合は、均等化より可能日時が優先され全員配置される。"""
+    slots = [("16:00", "16:20"), ("16:20", "16:40"), ("16:40", "17:00")]
+    dates = ["2026-07-15", "2026-07-16"]
+    project = _project(dates=dates, slots=slots, students=[1, 2, 3])
+    responses = [
+        _response(n, [("2026-07-15", s, e) for s, e in slots]) for n in (1, 2, 3)
+    ]
+    rules = Rules(global_constraints=_loose_global(), student_constraints=[])
+
+    result = solve(project, responses, rules)
+
+    assert result.unassigned_students == []
+    assert {a.date for a in result.assignments} == {date(2026, 7, 15)}
+
+
+# ===== 11. 期間優先（prefer_date_range） =====
+
+
+def _range_setup():
+    slots = [("16:00", "16:20"), ("16:20", "16:40"), ("16:40", "17:00")]
+    dates = ["2026-07-15", "2026-07-16", "2026-07-17"]
+    project = _project(dates=dates, slots=slots, students=[1, 2, 3, 4])
+    avail = [(d, s, e) for d in dates for s, e in slots]
+    return project, [_response(n, avail) for n in (1, 2, 3, 4)], slots
+
+
+def test_prefer_date_range_places_targets_in_range():
+    """対象生徒は指定期間内に配置される（均等化より優先）。"""
+    project, responses, _ = _range_setup()
+    rules = Rules(
+        global_constraints=_loose_global(),
+        student_constraints=[
+            PreferDateRangeConstraint(
+                student_numbers=[1, 2, 3],
+                date_from=date(2026, 7, 17),
+                date_to=date(2026, 7, 17),
+                weight=5,
+            )
+        ],
+    )
+    result = solve(project, responses, rules)
+    assert result.unassigned_students == []
+    by_sn = {a.student_number: a.date for a in result.assignments}
+    assert all(by_sn[n] == date(2026, 7, 17) for n in (1, 2, 3))
+
+
+def test_prefer_date_range_falls_back_outside_when_full():
+    """期間内の枠が足りなければ、期間外にも配置される（未配置にしない）。"""
+    project, responses, _ = _range_setup()
+    rules = Rules(
+        global_constraints=_loose_global(),
+        student_constraints=[
+            PreferDateRangeConstraint(
+                student_numbers=[1, 2, 3, 4],
+                date_from=date(2026, 7, 17),
+                date_to=date(2026, 7, 17),
+                weight=5,
+            )
+        ],
+    )
+    result = solve(project, responses, rules)
+    assert result.unassigned_students == []
+    in_range = [a for a in result.assignments if a.date == date(2026, 7, 17)]
+    assert len(in_range) == 3
+
+
+def test_prefer_date_range_rejects_inverted_range():
+    with pytest.raises(ValueError):
+        PreferDateRangeConstraint(
+            student_numbers=[1],
+            date_from=date(2026, 7, 17),
+            date_to=date(2026, 7, 15),
+            weight=5,
+        )
+
