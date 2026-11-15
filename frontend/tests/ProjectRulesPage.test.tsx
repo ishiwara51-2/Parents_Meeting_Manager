@@ -5,7 +5,7 @@
  * テスト対象: requirements.md §4.5.2
  *   - プロジェクトルール設定フォームの表示
  *   - 保存処理
- *   - 保存成功メッセージ
+ *   - 保存成功後のプロジェクト画面への遷移
  */
 
 import { render, screen, waitFor } from '@testing-library/react'
@@ -89,7 +89,7 @@ describe('ProjectRulesPage', () => {
     })
   })
 
-  it('保存成功時にメッセージを表示する', async () => {
+  it('保存成功時にプロジェクト画面へ遷移する', async () => {
     const user = userEvent.setup()
     renderProjectRulesPage()
 
@@ -102,7 +102,7 @@ describe('ProjectRulesPage', () => {
     await user.click(screen.getByRole('button', { name: '保存' }))
 
     await waitFor(() => {
-      expect(screen.getByRole('status')).toBeInTheDocument()
+      expect(screen.getByTestId('project-page')).toBeInTheDocument()
     })
   })
 

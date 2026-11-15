@@ -38,7 +38,6 @@ export default function ProjectRulesPage() {
   // サーバから取得したプロジェクト固有ルール（作成時にグローバルルールから
   // 複製されたもの）をそのまま編集用 state にコピーして扱う
   const [localRules, setLocalRules] = useState<Rules | null>(null)
-  const [saved, setSaved] = useState(false)
   const [apiError, setApiError] = useState('')
   // 生徒番号の範囲チェック用にプロジェクトの生徒番号を取得する（未取得ならチェックしない）
   const { data: project } = useQuery({
@@ -67,8 +66,8 @@ export default function ProjectRulesPage() {
     mutationFn: (r: Rules) => rulesApi.putProject(projectId!, r),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['project-rules', projectId] })
-      setSaved(true)
       setApiError('')
+      navigate(`/projects/${projectId}`)
     },
     onError: (err: Error) => {
       setApiError(err.message ?? '保存に失敗しました')
@@ -77,7 +76,6 @@ export default function ProjectRulesPage() {
 
   const handleSave = () => {
     if (!localRules) return
-    setSaved(false)
     const errors = validateRows(studentRows, {
       studentNumbers: project?.student_numbers,
       candidateDates: project?.candidate_dates,
@@ -141,11 +139,6 @@ export default function ProjectRulesPage() {
       ]}
     >
       <div className="flex flex-col gap-5">
-        {saved && (
-          <Alert variant="success" role="status">
-            保存しました
-          </Alert>
-        )}
         {apiError && <Alert variant="error">{apiError}</Alert>}
 
         <Card>
